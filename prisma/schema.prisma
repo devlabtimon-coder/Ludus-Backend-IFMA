@@ -19,7 +19,6 @@ enum RentalStatus {
   CANCELED
 }
 
-
 enum GameTier {
   LATAO
   BRONZE
@@ -27,7 +26,6 @@ enum GameTier {
   OURO
   DIAMANTE
 }
-
 
 enum ClientCategory {
   STARTER
@@ -83,8 +81,11 @@ model User {
   termsAcceptedAt   DateTime?
   privacyAcceptedAt DateTime?
 
-  role String @default("USER")
+  role               String    @default("USER")
 
+  matricula          String?   @unique
+  isAcademicVerified Boolean   @default(false)
+  academicVerifiedAt DateTime?
 
   clientCategory    ClientCategory @default(STARTER)
   totalRentalsCount Int            @default(0)
@@ -120,13 +121,12 @@ model Game {
   isActive  Boolean @default(true)
   isVisible Boolean @default(true)
 
-
   tier GameTier @default(BRONZE)
 
-  minPlayers Int @default(1)
+  minPlayers Int  @default(1)
   maxPlayers Int?
-  minAge     Int @default(0)
-  minTime    Int @default(0)
+  minAge     Int  @default(0)
+  minTime    Int  @default(0)
   maxTime    Int?
 
   userId String
@@ -247,7 +247,7 @@ model Rental {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   gameId String?
-  game   Game?  @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  game   Game?   @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   copyId String?
   copy   GameCopy? @relation(fields: [copyId], references: [id], onDelete: SetNull)
@@ -301,6 +301,8 @@ model PendingRegistration {
   email     String  @unique
   phone     String? @unique
   senhaHash String
+
+  matricula String? @unique
 
   acceptedTerms   Boolean @default(false)
   acceptedPrivacy Boolean @default(false)

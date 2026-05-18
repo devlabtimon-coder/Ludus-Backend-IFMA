@@ -16,6 +16,7 @@ import { startRentalReminderJob } from "./jobs/rentalReminders";
 import { gameWatchRoutes } from "./routes/gameWatch.routes";
 import { userProfileRoutes } from "./routes/userProfile.routes";
 import { categoryRoutes } from "./routes/category.routes";
+import ifmaRoutes from "./routes/ifma.routes";
 
 const app = express();
 
@@ -30,6 +31,11 @@ app.get("/health", (_req, res) => {
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 app.use("/auth", authRoutes);
+
+if (process.env.IFMA_MODE === "true") {
+  app.use("/auth/ifma", ifmaRoutes);
+  console.log("🏫 Modo IFMA ativado — rotas acadêmicas registradas.");
+}
 
 app.use("/games", gameRoutes);
 app.use("/games", gameCopyRoutes);
