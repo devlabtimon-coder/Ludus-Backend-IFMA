@@ -23,6 +23,7 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
 
     const userId = decoded.sub;
 
+    // Buscamos o usuário no banco incluindo o campo isBlocked
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -32,6 +33,7 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
         phone: true,
         emailVerified: true,
         phoneVerified: true,
+        isBlocked: true, // Verificando se o usuário está bloqueado
       },
     });
 
@@ -39,10 +41,18 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
       return res.status(401).json({ error: "Utilizador não encontrado" });
     }
 
+    // 1. Verificação de Bloqueio Administrativo
+    if (user.isBlocked) {
+      return res.status(403).json({
+        error: "Sua conta foi bloqueada por um administrador.",
+        code: "ACCOUNT_BLOCKED",
+      });
+    }
+
+    // 2. Verificação de Vínculo (E-mail ou Telefone)
     const hasVerifiedEmail = !!user.email && !!user.emailVerified;
     const hasVerifiedPhone = !!user.phone && !!user.phoneVerified;
 
-    
     if (!hasVerifiedEmail && !hasVerifiedPhone) {
       return res.status(403).json({
         error: "Sua conta precisa ser verificada por e-mail ou telefone.",

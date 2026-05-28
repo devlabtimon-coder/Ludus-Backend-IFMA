@@ -48,7 +48,16 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       where,
       orderBy: { startDate: "desc" },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
+        user: { 
+  select: { 
+    id: true, 
+    name: true, 
+    email: true, 
+    phone: true,
+    avatar: true,   // <--- ADICIONE ISSO
+    picture: true   // <--- ADICIONE ISSO
+  } 
+},
         game: { select: { id: true, title: true, cover: true, price: true } },
         copy: { select: { id: true, code: true, number: true, condition: true } },
       },
@@ -217,3 +226,4 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
     return res.status(500).json({ error: "Erro ao atualizar aluguel" });
   }
 });
+

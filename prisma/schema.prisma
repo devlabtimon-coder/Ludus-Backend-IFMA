@@ -82,6 +82,7 @@ model User {
   privacyAcceptedAt DateTime?
 
   role               String    @default("USER")
+  isBlocked Boolean @default(false)
 
   matricula          String?   @unique
   isAcademicVerified Boolean   @default(false)

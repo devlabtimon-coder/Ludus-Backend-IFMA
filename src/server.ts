@@ -17,6 +17,7 @@ import { gameWatchRoutes } from "./routes/gameWatch.routes";
 import { userProfileRoutes } from "./routes/userProfile.routes";
 import { categoryRoutes } from "./routes/category.routes";
 import ifmaRoutes from "./routes/ifma.routes";
+import { adminUserRoutes } from "./routes/adminUser.routes"
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use("/users", pushTokenRoutes);
 app.use("/users", userProfileRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/notifications", notificationRoutes);
+app.use("/admin/users", adminUserRoutes);
 
 app.get("/", (_req, res) => {
   res.send("API Ludus rodando 🚀");

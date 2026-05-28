@@ -63,7 +63,7 @@ router.post("/register", async (req, res) => {
     }
 
     if (!cleanEmail.endsWith(IFMA_EMAIL_DOMAIN)) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         error: `Apenas e-mails institucionais são aceitos (${IFMA_EMAIL_DOMAIN}).`,
         code: "INVALID_INSTITUTIONAL_EMAIL",
       });
