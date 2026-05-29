@@ -163,6 +163,12 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         isBlocked: true,
         createdAt: true,
         
+        // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
+        cpf: true,
+        address: true,
+        avatar: true,  // Adicionado para carregar a foto de perfil
+        picture: true, // Caso utilizes login do Google, a foto pode vir aqui
+        
         // 👇 ESSES SÃO OS CAMPOS QUE FAZEM O PAINEL FUNCIONAR 👇
         registrationStatus: true,
         documentFrontImage: true,
@@ -176,5 +182,35 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   } catch (err) {
     console.error("Erro ao listar usuários:", err);
     return res.status(500).json({ error: "Erro ao listar usuários." });
+  }
+});
+
+// Solicitar reenvio de um documento específico
+adminUserRoutes.post("/:id/request-doc", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  const id = ensureString(req.params.id);
+  const { documentName } = req.body;
+
+  if (!id || !documentName) {
+    return res.status(400).json({ error: "ID e Nome do Documento são obrigatórios." });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
+
+    // Dispara a notificação pro celular do cliente
+    await notifyUser({
+      userId: id,
+      type: NotificationType.VERIFY_REQUIRED,
+      title: "Documento Pendente 📄",
+      body: `Precisamos que você envie a foto de: ${documentName} para liberar seu cadastro.`,
+      channelId: "system",
+      data: { route: "/profile/documents" } // Manda o cliente direto pra tela de documentos
+    });
+
+    return res.json({ message: "Notificação enviada com sucesso!" });
+  } catch (err) {
+    console.error("Erro ao solicitar documento:", err);
+    return res.status(500).json({ error: "Erro ao notificar o usuário." });
   }
 });

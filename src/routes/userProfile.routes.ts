@@ -6,7 +6,6 @@ import { uploadAvatar } from "../middlewares/uploadAvatar";
 import { cloudinary } from "../lib/cloudinary";
 import { ClientCategory } from "@prisma/client";
 
-
 const CATEGORY_ORDER: ClientCategory[] = [
   "STARTER",
   "FAMILY",
@@ -21,14 +20,12 @@ function getNextCategory(current: ClientCategory) {
   return CATEGORY_ORDER[idx + 1];
 }
 
-
 export const userProfileRoutes = Router();
 
 function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
   if (!url) return null;
 
   try {
-
     const marker = "/upload/";
     const idx = url.indexOf(marker);
 
@@ -36,7 +33,6 @@ function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
 
     let pathPart = url.slice(idx + marker.length);
 
-    
     const parts = pathPart.split("/");
     const versionIndex = parts.findIndex((part) => /^v\d+$/.test(part));
 
@@ -44,7 +40,6 @@ function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
       pathPart = parts.slice(versionIndex + 1).join("/");
     }
 
-  
     pathPart = pathPart.replace(/\.[^.]+$/, "");
 
     return pathPart;
@@ -72,10 +67,11 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         picture: true,
         senhaHash: true,
 
-        // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
+        // 👇 NOVOS CAMPOS ADICIONADOS E CORRIGIDOS AQUI 👇
         registrationStatus: true,
         rejectReason: true,
         documentFrontImage: true,
+        documentBackImage: true, // <-- ADICIONADO AQUI
         addressProof: true,
         // ===================================
 
@@ -121,10 +117,11 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       picture: user.picture,
       hasPassword: !!user.senhaHash,
 
-      // 👇 NOVOS CAMPOS ADICIONADOS AQUI TAMBÉM 👇
+      // 👇 NOVOS CAMPOS ADICIONADOS E CORRIGIDOS AQUI TAMBÉM 👇
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
       documentFrontImage: user.documentFrontImage,
+      documentBackImage: user.documentBackImage, // <-- ADICIONADO AQUI
       addressProof: user.addressProof,
       // =========================================
 
@@ -399,8 +396,6 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
     });
   }
 });
-
-
 
 userProfileRoutes.patch(
   "/me/documents",

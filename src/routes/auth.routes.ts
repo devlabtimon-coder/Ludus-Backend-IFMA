@@ -44,6 +44,13 @@ function buildUserResponse(user: {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
+  
+  // 👇 ADICIONE ESTES CAMPOS NA TIPAGEM 👇
+  registrationStatus?: string | null;
+  rejectReason?: string | null;
+  documentFrontImage?: string | null;
+  documentBackImage?: string | null;
+  addressProof?: string | null;
 }) {
   return {
     id: user.id,
@@ -61,6 +68,12 @@ function buildUserResponse(user: {
     authProvider: user.authProvider,
     avatar: user.avatar,
     picture: user.picture,
+
+    registrationStatus: user.registrationStatus,
+    rejectReason: user.rejectReason,
+    documentFrontImage: user.documentFrontImage,
+    documentBackImage: user.documentBackImage,
+    addressProof: user.addressProof,
   };
 }
 

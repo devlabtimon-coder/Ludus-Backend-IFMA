@@ -17,11 +17,13 @@ import { gameWatchRoutes } from "./routes/gameWatch.routes";
 import { userProfileRoutes } from "./routes/userProfile.routes";
 import { categoryRoutes } from "./routes/category.routes";
 import ifmaRoutes from "./routes/ifma.routes";
-import { adminUserRoutes } from "./routes/adminUser.routes"
+import { adminUserRoutes } from "./routes/adminUser.routes";
+import { startRegistrationReminderJob } from "./jobs/registration.job";
 
 const app = express();
 
 startRentalReminderJob();
+startRegistrationReminderJob();
 
 app.use(cors());
 app.use(express.json());
