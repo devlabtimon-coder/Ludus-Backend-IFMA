@@ -52,6 +52,12 @@ enum NotificationType {
   GAME_BACK_AVAILABLE
 }
 
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id    String  @id @default(uuid())
   name  String
@@ -81,12 +87,21 @@ model User {
   termsAcceptedAt   DateTime?
   privacyAcceptedAt DateTime?
 
-  role               String    @default("USER")
+  role      String  @default("USER")
   isBlocked Boolean @default(false)
 
   matricula          String?   @unique
   isAcademicVerified Boolean   @default(false)
   academicVerifiedAt DateTime?
+
+  cpf     String? @unique
+  address String?
+
+  documentFrontImage String?
+  documentBackImage  String?
+  addressProof       String?
+  registrationStatus RegistrationStatus @default(PENDING)
+  rejectReason       String?
 
   clientCategory    ClientCategory @default(STARTER)
   totalRentalsCount Int            @default(0)
@@ -311,6 +326,9 @@ model PendingRegistration {
   emailVerificationCode String?
   emailCodeExpiresAt    DateTime?
   lastEmailSentAt       DateTime?
+
+  cpf     String? @unique
+  address String?
 
   phoneVerificationCode String?
   phoneCodeExpiresAt    DateTime?

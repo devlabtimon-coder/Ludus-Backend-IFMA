@@ -72,6 +72,12 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         picture: true,
         senhaHash: true,
 
+        // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
+        registrationStatus: true,
+        rejectReason: true,
+        documentFrontImage: true,
+        addressProof: true,
+        // ===================================
 
         clientCategory: true,
         totalRentalsCount: true,
@@ -84,7 +90,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
 
     const currentCount = user.totalRentalsCount ?? 0;
 
- 
     const rawProgress = currentCount % RENTALS_PER_PROMOTION;
 
     const progress =
@@ -115,6 +120,13 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       avatar: user.avatar,
       picture: user.picture,
       hasPassword: !!user.senhaHash,
+
+      // 👇 NOVOS CAMPOS ADICIONADOS AQUI TAMBÉM 👇
+      registrationStatus: user.registrationStatus,
+      rejectReason: user.rejectReason,
+      documentFrontImage: user.documentFrontImage,
+      addressProof: user.addressProof,
+      // =========================================
 
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
@@ -388,3 +400,86 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
   }
 });
 
+
+
+userProfileRoutes.patch(
+  "/me/documents",
+  ensureAuthenticated,
+  uploadAvatar.fields([
+    { name: "documentFront", maxCount: 1 },
+    { name: "documentBack", maxCount: 1 },
+    { name: "addressProof", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      const docFrontFile = files?.documentFront?.[0];
+      const docBackFile = files?.documentBack?.[0];
+      const addressFile = files?.addressProof?.[0];
+
+      if (!docFrontFile || !docBackFile || !addressFile) {
+        return res.status(400).json({ 
+          error: "Você precisa enviar a frente e o verso do documento, e o comprovante de residência." 
+        });
+      }
+
+      // Função auxiliar para subir para o Cloudinary
+      const uploadToCloudinary = (fileBuffer: Buffer, publicId: string) => {
+        return new Promise<any>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "ludus/documents",
+              resource_type: "image",
+              public_id: publicId,
+              overwrite: true,
+              transformation: [{ quality: "auto", fetch_format: "auto" }],
+            },
+            (error, result) => {
+              if (error) return reject(error);
+              resolve(result);
+            }
+          );
+          stream.end(fileBuffer);
+        });
+      };
+
+      // Faz o upload das três imagens em paralelo para ganhar velocidade
+      const [frontUpload, backUpload, addressUpload] = await Promise.all([
+        uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`),
+        uploadToCloudinary(docBackFile.buffer, `doc-back-${req.user.id}-${Date.now()}`),
+        uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`),
+      ]);
+
+      // Salva as URLs seguras no banco de dados e joga o status para PENDING
+      const updatedUser = await prisma.user.update({
+        where: { id: req.user.id },
+        data: {
+          documentFrontImage: frontUpload.secure_url,
+          documentBackImage: backUpload.secure_url,
+          addressProof: addressUpload.secure_url,
+          registrationStatus: "PENDING", 
+          rejectReason: null, // Limpa o motivo de alguma rejeição anterior
+        },
+        select: {
+          id: true,
+          name: true,
+          registrationStatus: true,
+          rejectReason: true,
+        },
+      });
+
+      return res.json({
+        message: "Documentos enviados com sucesso!",
+        user: updatedUser,
+      });
+
+    } catch (err: any) {
+      console.error("Erro ao processar documentos:", err);
+      if (err?.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: "As imagens devem ter no máximo 5MB." });
+      }
+      return res.status(500).json({ error: "Erro interno ao enviar documentos." });
+    }
+  }
+);

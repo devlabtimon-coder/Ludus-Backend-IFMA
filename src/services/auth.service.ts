@@ -17,6 +17,11 @@ type AuthUserResponse = {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
+  // 👇 Novos campos de documentos adicionados
+  registrationStatus: string;
+  rejectReason: string | null;
+  documentFrontImage: string | null;
+  addressProof: string | null;
 };
 
 function buildUserResponse(user: {
@@ -32,6 +37,11 @@ function buildUserResponse(user: {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
+  // 👇 Tipagem dos novos campos
+  registrationStatus: string;
+  rejectReason: string | null;
+  documentFrontImage: string | null;
+  addressProof: string | null;
 }): AuthUserResponse {
   return {
     id: user.id,
@@ -47,6 +57,11 @@ function buildUserResponse(user: {
     authProvider: user.authProvider,
     avatar: user.avatar,
     picture: user.picture,
+    // 👇 Repassando os valores do banco para o App
+    registrationStatus: user.registrationStatus,
+    rejectReason: user.rejectReason,
+    documentFrontImage: user.documentFrontImage,
+    addressProof: user.addressProof,
   };
 }
 
@@ -149,6 +164,7 @@ export async function loginWithGoogle(idToken: string) {
         level: 1,
         termsAcceptedAt: new Date(),
         privacyAcceptedAt: new Date(),
+        // Os campos de documentos vão receber os defaults do banco (PENDING, null, etc)
       },
     });
   } else {

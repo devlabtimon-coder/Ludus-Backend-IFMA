@@ -34,6 +34,8 @@ function buildUserResponse(user: {
   name: string;
   email: string;
   phone: string | null;
+  cpf: string | null;
+  address: string | null;
   role: string;
   emailVerified: boolean;
   phoneVerified: boolean;
@@ -49,6 +51,8 @@ function buildUserResponse(user: {
     name: user.name,
     email: user.email,
     phone: user.phone,
+    cpf: user.cpf,
+    address: user.address,
     role: user.role,
     emailVerified: user.emailVerified,
     phoneVerified: user.phoneVerified,
@@ -116,12 +120,22 @@ router.post("/google", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy } = req.body;
+  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address } = req.body;
 
   try {
     const cleanName = (name || "").trim();
     const cleanEmail = (email || "").trim().toLowerCase();
     const cleanPhone = phone ? cleanDigits(phone) : null;
+    const cleanCpf = cleanDigits(cpf);
+    const cleanAddress = (address || "").trim();
+
+    if (!cleanAddress) { 
+      return res.status(400).json({ error: "Endereço é obrigatório." });
+    }
+
+    if(!cleanCpf) {
+      return res.status(400).json({ error: "Cpf é obrigatório." });
+    };
 
     if (!cleanName) {
       return res.status(400).json({ error: "Nome é obrigatório." });
@@ -205,6 +219,8 @@ router.post("/register", async (req, res) => {
             senhaHash: hash,
             acceptedTerms,
             acceptedPrivacy,
+            cpf: cleanCpf,        // <--- ATUALIZA CPF AQUI
+            address: cleanAddress,// <--- ATUALIZA ENDEREÇO AQUI
             emailVerificationCode: emailCode,
             emailCodeExpiresAt: emailExpiresAt,
             lastEmailSentAt: new Date(),
@@ -251,6 +267,8 @@ router.post("/register", async (req, res) => {
         senhaHash: hash,
         acceptedTerms,
         acceptedPrivacy,
+        cpf: cleanCpf,     // <--- SALVA AQUI
+        address: cleanAddress,
         emailVerificationCode: emailCode,
         emailCodeExpiresAt: emailExpiresAt,
         lastEmailSentAt: new Date(),
@@ -351,6 +369,8 @@ router.post("/verify-email", async (req, res) => {
       senhaHash: pending.senhaHash,
       emailVerified: true,
       phoneVerified: false,
+      cpf: pending.cpf!,           // <--- TRANSFERE O CPF
+      address: pending.address!,   // <--- TRANSFERE O ENDEREÇO
       termsAcceptedAt: pending.acceptedTerms ? new Date() : null,
       privacyAcceptedAt: pending.acceptedPrivacy ? new Date() : null,
     },
@@ -489,6 +509,8 @@ router.post("/verify-phone", async (req, res) => {
           email: updatedPending.email,
           phone: updatedPending.phone,
           senhaHash: updatedPending.senhaHash,
+          cpf: updatedPending.cpf!,           // <--- ADICIONADO
+          address: updatedPending.address!,   // <--- ADICIONADO
           emailVerified: true,
           phoneVerified: true,
         },

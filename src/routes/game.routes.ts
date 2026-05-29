@@ -2,6 +2,7 @@ import { Router } from "express";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureAdmin } from "../middlewares/ensureAdmin";
 import { ensureUserOnly } from "../middlewares/ensureUserOnly";
+import { verify } from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import {
   searchLudopedia,
@@ -70,10 +71,42 @@ gameRoutes.get("/", async (req, res) => {
     ? req.query.stars[0]
     : req.query.stars;
 
-  const where: any = {
-    isVisible: true,
-    isActive: true,
-  };
+
+ let isAdmin = false;
+const authHeader = req.headers.authorization;
+
+// O backend dá uma "espiada" para ver se tem um token na requisição
+if (authHeader) {
+  const parts = authHeader.split(" ");
+  if (parts.length === 2) {
+    const token = parts[1];
+    try {
+      // Tenta ler o token (usando o seu JWT_SECRET)
+      const decoded = verify(token, process.env.JWT_SECRET as string) as any;
+      
+      // Se for válido, busca rapidinho a role do usuário no banco
+      if (decoded.sub) {
+        const userCheck = await prisma.user.findUnique({
+          where: { id: decoded.sub },
+          select: { role: true }
+        });
+        if (userCheck?.role === "ADMIN") {
+          isAdmin = true; // É o ADMIN! Liberar tudo!
+        }
+      }
+    } catch (e) {
+      // Se der erro (token expirado ou sem token), ignora e segue como usuário comum
+    }
+  }
+}
+
+const where: any = {};
+
+// Se NÃO for admin, esconde os inativos. Se for, mostra tudo!
+if (!isAdmin) {
+  where.isVisible = true;
+  where.isActive = true;
+}
 
   if (q && String(q).trim()) {
     const term = String(q).trim();
