@@ -67,12 +67,13 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         picture: true,
         senhaHash: true,
 
-        // 👇 NOVOS CAMPOS ADICIONADOS E CORRIGIDOS AQUI 👇
+        // 👇 TODOS OS DOCUMENTOS, INCLUINDO A SELFIE 👇
         registrationStatus: true,
         rejectReason: true,
         documentFrontImage: true,
-        documentBackImage: true, // <-- ADICIONADO AQUI
+        documentBackImage: true,
         addressProof: true,
+        selfieWithId: true, // <--- ADICIONADO
         // ===================================
 
         clientCategory: true,
@@ -117,13 +118,14 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       picture: user.picture,
       hasPassword: !!user.senhaHash,
 
-      // 👇 NOVOS CAMPOS ADICIONADOS E CORRIGIDOS AQUI TAMBÉM 👇
+     
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
       documentFrontImage: user.documentFrontImage,
-      documentBackImage: user.documentBackImage, // <-- ADICIONADO AQUI
+      documentBackImage: user.documentBackImage,
       addressProof: user.addressProof,
-      // =========================================
+      selfieWithId: user.selfieWithId, 
+     
 
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
@@ -404,6 +406,7 @@ userProfileRoutes.patch(
     { name: "documentFront", maxCount: 1 },
     { name: "documentBack", maxCount: 1 },
     { name: "addressProof", maxCount: 1 },
+    { name: "selfieWithId", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
@@ -412,14 +415,11 @@ userProfileRoutes.patch(
       const docFrontFile = files?.documentFront?.[0];
       const docBackFile = files?.documentBack?.[0];
       const addressFile = files?.addressProof?.[0];
+      const selfieFile = files?.selfieWithId?.[0];
 
-      if (!docFrontFile || !docBackFile || !addressFile) {
-        return res.status(400).json({ 
-          error: "Você precisa enviar a frente e o verso do documento, e o comprovante de residência." 
-        });
-      }
+      // REMOVEMOS A VERIFICAÇÃO QUE EXIGIA OS 4 ARQUIVOS JUNTOS
+      // Agora o usuário pode mandar só 1, 2 ou os 4 de vez.
 
-      // Função auxiliar para subir para o Cloudinary
       const uploadToCloudinary = (fileBuffer: Buffer, publicId: string) => {
         return new Promise<any>((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
@@ -439,23 +439,33 @@ userProfileRoutes.patch(
         });
       };
 
-      // Faz o upload das três imagens em paralelo para ganhar velocidade
-      const [frontUpload, backUpload, addressUpload] = await Promise.all([
-        uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`),
-        uploadToCloudinary(docBackFile.buffer, `doc-back-${req.user.id}-${Date.now()}`),
-        uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`),
-      ]);
+      // Vamos criar um objeto para salvar apenas as imagens que o cliente mandou agora
+      const updateData: any = {
+        registrationStatus: "PENDING", 
+        rejectReason: null, // Limpa qualquer rejeição anterior
+      };
 
-      // Salva as URLs seguras no banco de dados e joga o status para PENDING
+      // Uploads Condicionais
+      if (docFrontFile) {
+        const result = await uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`);
+        updateData.documentFrontImage = result.secure_url;
+      }
+      if (docBackFile) {
+        const result = await uploadToCloudinary(docBackFile.buffer, `doc-back-${req.user.id}-${Date.now()}`);
+        updateData.documentBackImage = result.secure_url;
+      }
+      if (addressFile) {
+        const result = await uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`);
+        updateData.addressProof = result.secure_url;
+      }
+      if (selfieFile) {
+        const result = await uploadToCloudinary(selfieFile.buffer, `selfie-${req.user.id}-${Date.now()}`);
+        updateData.selfieWithId = result.secure_url;
+      }
+
       const updatedUser = await prisma.user.update({
         where: { id: req.user.id },
-        data: {
-          documentFrontImage: frontUpload.secure_url,
-          documentBackImage: backUpload.secure_url,
-          addressProof: addressUpload.secure_url,
-          registrationStatus: "PENDING", 
-          rejectReason: null, // Limpa o motivo de alguma rejeição anterior
-        },
+        data: updateData,
         select: {
           id: true,
           name: true,
@@ -465,7 +475,7 @@ userProfileRoutes.patch(
       });
 
       return res.json({
-        message: "Documentos enviados com sucesso!",
+        message: "Documentos atualizados com sucesso!",
         user: updatedUser,
       });
 

@@ -162,6 +162,7 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         role: true,
         isBlocked: true,
         createdAt: true,
+        selfieWithId: true,
         
         // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
         cpf: true,
