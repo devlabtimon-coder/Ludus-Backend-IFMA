@@ -100,7 +100,7 @@ model User {
   documentFrontImage String?
   documentBackImage  String?
   addressProof       String?
-  selfieWithId String?
+  selfieWithId       String?
   registrationStatus RegistrationStatus @default(PENDING)
   rejectReason       String?
 
@@ -214,8 +214,9 @@ model GameCopy {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  gameId String
-  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  isOriginal Boolean @default(false)
+  gameId     String
+  game       Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   rentals Rental[]
 
@@ -256,7 +257,7 @@ model GameAvailabilityWatch {
 
 model Rental {
   id        String       @id @default(uuid())
-  startDate DateTime     @default(now())
+  startDate          DateTime
   endDate   DateTime
   status    RentalStatus @default(PENDING)
 

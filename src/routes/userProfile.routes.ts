@@ -14,6 +14,7 @@ const CATEGORY_ORDER: ClientCategory[] = [
 ];
 
 const RENTALS_PER_PROMOTION = 10;
+
 function getNextCategory(current: ClientCategory) {
   const idx = CATEGORY_ORDER.indexOf(current);
   if (idx === -1 || idx === CATEGORY_ORDER.length - 1) return null;
@@ -22,6 +23,7 @@ function getNextCategory(current: ClientCategory) {
 
 export const userProfileRoutes = Router();
 
+// Função utilitária para extrair o ID público do Cloudinary e permitir a exclusão de arquivos velhos
 function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
   if (!url) return null;
 
@@ -48,6 +50,9 @@ function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
   }
 }
 
+// =======================================================
+// ROTA: OBTER PERFIL DO USUÁRIO LOGADO
+// =======================================================
 userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -67,14 +72,13 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         picture: true,
         senhaHash: true,
 
-        // 👇 TODOS OS DOCUMENTOS, INCLUINDO A SELFIE 👇
+        // Status de Cadastro e Documentos
         registrationStatus: true,
         rejectReason: true,
         documentFrontImage: true,
         documentBackImage: true,
         addressProof: true,
-        selfieWithId: true, // <--- ADICIONADO
-        // ===================================
+        selfieWithId: true,
 
         clientCategory: true,
         totalRentalsCount: true,
@@ -86,7 +90,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     }
 
     const currentCount = user.totalRentalsCount ?? 0;
-
     const rawProgress = currentCount % RENTALS_PER_PROMOTION;
 
     const progress =
@@ -118,14 +121,12 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       picture: user.picture,
       hasPassword: !!user.senhaHash,
 
-     
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
       documentFrontImage: user.documentFrontImage,
       documentBackImage: user.documentBackImage,
       addressProof: user.addressProof,
-      selfieWithId: user.selfieWithId, 
-     
+      selfieWithId: user.selfieWithId,
 
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
@@ -143,6 +144,9 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
+// =======================================================
+// ROTA: ATUALIZAR DADOS BÁSICOS DO PERFIL
+// =======================================================
 userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   try {
     const { name, phone } = req.body;
@@ -218,6 +222,9 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
+// =======================================================
+// ROTA: ALTERAR/CRIAR SENHA
+// =======================================================
 userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -271,13 +278,16 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
   }
 });
 
+// =======================================================
+// ROTA: ATUALIZAR AVATAR DO USUÁRIO
+// =======================================================
 userProfileRoutes.post(
   "/me/avatar",
   ensureAuthenticated,
   uploadAvatar.single("avatar"),
   async (req, res) => {
     try {
-      const file = req.file;  
+      const file = req.file;
 
       if (!file) {
         return res.status(400).json({ error: "Imagem não enviada." });
@@ -330,6 +340,7 @@ userProfileRoutes.post(
         },
       });
 
+      // Cleanup do avatar antigo
       const oldPublicId = extractPublicIdFromCloudinaryUrl(currentUser?.avatar);
 
       if (oldPublicId) {
@@ -366,6 +377,9 @@ userProfileRoutes.post(
   }
 );
 
+// =======================================================
+// ROTA: EXCLUIR AVATAR DO USUÁRIO
+// =======================================================
 userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => {
   try {
     const currentUser = await prisma.user.findUnique({
@@ -399,6 +413,9 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
   }
 });
 
+// =======================================================
+// ROTA: ENVIO E ATUALIZAÇÃO DE DOCUMENTOS (KYC)
+// =======================================================
 userProfileRoutes.patch(
   "/me/documents",
   ensureAuthenticated,
@@ -417,8 +434,16 @@ userProfileRoutes.patch(
       const addressFile = files?.addressProof?.[0];
       const selfieFile = files?.selfieWithId?.[0];
 
-      // REMOVEMOS A VERIFICAÇÃO QUE EXIGIA OS 4 ARQUIVOS JUNTOS
-      // Agora o usuário pode mandar só 1, 2 ou os 4 de vez.
+      // Busca os documentos atuais para deletar no Cloudinary caso sejam substituídos
+      const currentUser = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: {
+          documentFrontImage: true,
+          documentBackImage: true,
+          addressProof: true,
+          selfieWithId: true,
+        },
+      });
 
       const uploadToCloudinary = (fileBuffer: Buffer, publicId: string) => {
         return new Promise<any>((resolve, reject) => {
@@ -439,30 +464,39 @@ userProfileRoutes.patch(
         });
       };
 
-      // Vamos criar um objeto para salvar apenas as imagens que o cliente mandou agora
       const updateData: any = {
-        registrationStatus: "PENDING", 
-        rejectReason: null, // Limpa qualquer rejeição anterior
+        registrationStatus: "PENDING",
+        rejectReason: null, // Limpa qualquer rejeição anterior ao enviar novo documento
       };
 
-      // Uploads Condicionais
+      const oldFilesToDelete: string[] = [];
+
+      // Uploads Condicionais e Marcação de arquivos velhos para exclusão
       if (docFrontFile) {
         const result = await uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`);
         updateData.documentFrontImage = result.secure_url;
+        if (currentUser?.documentFrontImage) oldFilesToDelete.push(currentUser.documentFrontImage);
       }
+      
       if (docBackFile) {
         const result = await uploadToCloudinary(docBackFile.buffer, `doc-back-${req.user.id}-${Date.now()}`);
         updateData.documentBackImage = result.secure_url;
+        if (currentUser?.documentBackImage) oldFilesToDelete.push(currentUser.documentBackImage);
       }
+      
       if (addressFile) {
         const result = await uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`);
         updateData.addressProof = result.secure_url;
+        if (currentUser?.addressProof) oldFilesToDelete.push(currentUser.addressProof);
       }
+      
       if (selfieFile) {
         const result = await uploadToCloudinary(selfieFile.buffer, `selfie-${req.user.id}-${Date.now()}`);
         updateData.selfieWithId = result.secure_url;
+        if (currentUser?.selfieWithId) oldFilesToDelete.push(currentUser.selfieWithId);
       }
 
+      // Atualiza o banco de dados com os novos links
       const updatedUser = await prisma.user.update({
         where: { id: req.user.id },
         data: updateData,
@@ -473,6 +507,18 @@ userProfileRoutes.patch(
           rejectReason: true,
         },
       });
+
+      // CLEANUP: Deleta silenciosamente os documentos substituídos no Cloudinary
+      for (const oldUrl of oldFilesToDelete) {
+        const publicId = extractPublicIdFromCloudinaryUrl(oldUrl);
+        if (publicId) {
+          try {
+            await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+          } catch (err) {
+            console.error(`Erro ao remover documento antigo (${publicId}) do Cloudinary:`, err);
+          }
+        }
+      }
 
       return res.json({
         message: "Documentos atualizados com sucesso!",
