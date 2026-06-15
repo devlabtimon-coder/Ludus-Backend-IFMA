@@ -210,6 +210,7 @@ model GameCopy {
   code      String?
   condition String?
   available Boolean @default(true)
+  observations String?  @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -4,6 +4,7 @@ import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureUserOnly } from "../middlewares/ensureUserOnly";
 import { notifyUser } from "../services/notify.service";
 import { notifyGameBackAvailable } from "../services/gameAvailability.service";
+import { getHolidaysByYear } from "../services/holiday.service";
 import {
   canClientRentTier,
   incrementRentalCountAndMaybePromote,
@@ -11,12 +12,8 @@ import {
 
 export const rentalRoutes = Router();
 
-const RENTAL_DAYS = 3;
-
-function addDays(date: Date, days: number) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+function toISODateString(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => {
@@ -32,6 +29,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
   const endDate = new Date(endDateIso);
   const now = new Date();
 
+  // 1. Validações de Tempo Básico
   if (startDate >= endDate) {
     return res.status(400).json({ error: "A devolução deve ocorrer após a retirada." });
   }
@@ -54,8 +52,23 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(400).json({ error: "Horário de agendamento fora do funcionamento (08h às 19h)." });
   }
 
+  // 2. Validações de Feriados
+  const holidays = await getHolidaysByYear(startDate.getFullYear());
+  const startStr = toISODateString(startDate);
+  const endStr = toISODateString(endDate);
+
+  if (holidays.includes(startStr)) {
+    return res.status(400).json({ error: "A data de retirada cai em um feriado. A biblioteca estará fechada." });
+  }
+  if (holidays.includes(endStr)) {
+    return res.status(400).json({ error: "A data de devolução cai em um feriado. A biblioteca estará fechada." });
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // ==========================================
+      // REGRAS DO USUÁRIO
+      // ==========================================
       const user = await tx.user.findUnique({
         where: { id: userId },
         select: { id: true, clientCategory: true },
@@ -93,6 +106,9 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         } as const;
       }
 
+      // ==========================================
+      // VALIDAÇÕES DO JOGO E CATEGORIA
+      // ==========================================
       const game = await tx.game.findUnique({
         where: { id: String(gameId) },
         select: {
@@ -115,84 +131,92 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         }
       }
 
-      if (copyId) {
-        const copy = await tx.gameCopy.findUnique({ where: { id: String(copyId) } });
+      // ==========================================
+      // LÓGICA DE DISTRIBUIÇÃO (AUTO-ASSIGN) 🔥
+      // ==========================================
+      
+      // 1. Pega todas as cópias físicas do jogo (ativas)
+      const availableCopies = await tx.gameCopy.findMany({
+        where: { gameId: game.id, available: true }
+      });
 
-        if (!copy || copy.gameId !== game.id) {
-          return { status: 404, body: { error: "Exemplar não encontrado" } } as const;
-        }
-
-        if (!copy.available) {
-          return { status: 409, body: { error: "Exemplar em manutenção ou perdido.", code: "COPY_UNAVAILABLE" } } as const;
-        }
-
-        const copyCollisions = await tx.rental.count({
-          where: {
-            copyId: copy.id,
-            status: { in: ["PENDING", "ACTIVE"] },
-            startDate: { lt: endDate },
-            endDate: { gt: startDate }
-          }
-        });
-
-        if (copyCollisions > 0) {
-          return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
-        }
-
-        const rental = await tx.rental.create({
-          data: {
-            userId,
-            gameId: game.id,
-            copyId: copy.id,
-            startDate,
-            endDate,
-            status: "PENDING",
-            gameTitleSnapshot: game.title,
-            gameCoverSnapshot: game.cover ?? null,
-          },
-        });
-
-        return { status: 201, body: rental } as const;
-      }
-
-      if (!game.allowOriginalRental) {
-        return { status: 409, body: { error: "Este jogo só pode ser alugado por exemplar.", code: "ONLY_COPIES_ALLOWED" } } as const;
-      }
-
-      if (!game.available) {
-        return { status: 409, body: { error: "Jogo original em manutenção ou perdido.", code: "GAME_UNAVAILABLE" } } as const;
-      }
-
-      const originalCollisions = await tx.rental.count({
+      // 2. Procura todas as reservas ATIVAS no mesmo horário
+      const overlappingRentals = await tx.rental.findMany({
         where: {
           gameId: game.id,
-          copyId: null, 
           status: { in: ["PENDING", "ACTIVE"] },
           startDate: { lt: endDate },
           endDate: { gt: startDate }
-        }
+        },
+        select: { copyId: true }
       });
 
-      if (originalCollisions > 0) {
-        return { status: 409, body: { error: "O jogo original já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
+      // Quais caixas já estão reservadas neste horário?
+      // Se copyId for null, significa que o jogo Original está ocupado.
+      const takenCopyIds = overlappingRentals.map(r => r.copyId);
+      const isOriginalTaken = takenCopyIds.includes(null);
+
+      let assignedCopyId: string | null | undefined = undefined;
+
+      // Se o usuário mandou o ID exato de uma cópia (Ex: tela administrativa)
+      if (copyId) {
+        if (takenCopyIds.includes(String(copyId))) {
+          return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
+        }
+        assignedCopyId = String(copyId);
+      } 
+      // Se o usuário só quer alugar o jogo pelo app (Qualquer caixa serve)
+      else {
+        // Tenta a caixa original primeiro (se for permitido e estiver livre)
+        if (game.allowOriginalRental && game.available && !isOriginalTaken) {
+          assignedCopyId = null; // null = Original
+        } else {
+          // Se a original não der, varre a lista de cópias e pega a primeira que não estiver na lista de ocupadas!
+          const freeCopy = availableCopies.find(c => !takenCopyIds.includes(c.id));
+          
+          if (freeCopy) {
+            assignedCopyId = freeCopy.id;
+          }
+        }
       }
 
+      // Se passou por toda a checagem e não achou NENHUMA caixa livre...
+      if (assignedCopyId === undefined) {
+        return { status: 409, body: { error: "Todos os exemplares deste jogo já estão reservados neste horário.", code: "TIME_SLOT_TAKEN" } } as const;
+      }
+
+      // Precisamos salvar os Snapshots da cópia pra não perder histórico se ela for apagada depois
+      let copyCodeSnapshot = null;
+      let copyNumberSnapshot = null;
+
+      if (assignedCopyId !== null) {
+        const selectedCopy = availableCopies.find(c => c.id === assignedCopyId);
+        if (selectedCopy) {
+          copyCodeSnapshot = selectedCopy.code;
+          copyNumberSnapshot = selectedCopy.number;
+        }
+      }
+
+      // 3. Efetiva a reserva!
       const rental = await tx.rental.create({
         data: {
           userId,
           gameId: game.id,
-          copyId: undefined, 
+          copyId: assignedCopyId, 
           startDate,
           endDate,
           status: "PENDING",
           gameTitleSnapshot: game.title,
           gameCoverSnapshot: game.cover ?? null,
+          copyCodeSnapshot,
+          copyNumberSnapshot
         },
       });
 
       return { status: 201, body: rental } as const;
     });
 
+    // Se deu certo, notifica
     if (result.status === 201 && "id" in result.body) {
       await incrementRentalCountAndMaybePromote(userId);
 
@@ -218,6 +242,10 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
   }
 });
 
+
+// =======================================================
+// GET: Listar Meus Aluguéis
+// =======================================================
 rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   try {
     const rentals = await prisma.rental.findMany({
@@ -272,6 +300,9 @@ rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
+// =======================================================
+// PATCH: Cancelar Reserva
+// =======================================================
 rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
@@ -376,6 +407,9 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
   }
 });
 
+// =======================================================
+// PATCH: Finalizar / Devolver
+// =======================================================
 rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
   const { id } = req.params;
 
@@ -411,6 +445,9 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
   }
 });
 
+// =======================================================
+// GET: Calendário (Dias Indisponíveis)
+// =======================================================
 rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (req, res) => {
   const { gameId } = req.params;
   const { year, month } = req.query; 
@@ -461,13 +498,20 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
       },
     });
 
+    const holidays = await getHolidaysByYear(targetYear);
     const unavailableDates: string[] = [];
- 
     const daysInMonth = endOfMonth.getDate();
+
     for (let day = 1; day <= daysInMonth; day++) {
       const currentDate = new Date(targetYear, targetMonth, day);
+      const formattedDate = toISODateString(currentDate);
       
       if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+        continue;
+      }
+
+      if (holidays.includes(formattedDate)) {
+        unavailableDates.push(formattedDate);
         continue;
       }
       
@@ -483,7 +527,6 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
       }
       
       if (conflictingRentalsThisDay >= totalCopies) {
-        const formattedDate = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         unavailableDates.push(formattedDate);
       }
     }
