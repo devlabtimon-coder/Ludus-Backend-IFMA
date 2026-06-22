@@ -17,11 +17,13 @@ type AuthUserResponse = {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
-  // 👇 Novos campos de documentos adicionados
   registrationStatus: string;
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
+  // 👇 Novos campos IFMA adicionados
+  isAcademicVerified: boolean;
+  matricula: string | null;
 };
 
 function buildUserResponse(user: {
@@ -37,11 +39,13 @@ function buildUserResponse(user: {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
-  // 👇 Tipagem dos novos campos
   registrationStatus: string;
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
+  // 👇 Tipagem para aceitar os campos opcionais do IFMA
+  isAcademicVerified?: boolean | null;
+  matricula?: string | null;
 }): AuthUserResponse {
   return {
     id: user.id,
@@ -57,11 +61,13 @@ function buildUserResponse(user: {
     authProvider: user.authProvider,
     avatar: user.avatar,
     picture: user.picture,
-    // 👇 Repassando os valores do banco para o App
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
     documentFrontImage: user.documentFrontImage,
     addressProof: user.addressProof,
+    // 👇 Repassando os valores do banco para o App
+    isAcademicVerified: user.isAcademicVerified || false,
+    matricula: user.matricula || null,
   };
 }
 

@@ -906,4 +906,48 @@ gameRoutes.get("/:id/can-rate", ensureAuthenticated, async (req, res) => {
   }
 });
 
+// =================================================================
+// Rota para Refazer a Tradução/Sincronização da Descrição
+// =================================================================
+gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  try {
+    const id = requireSingleParam(req.params.id, "id");
+    
+    const game = await prisma.game.findUnique({ where: { id } });
+    if (!game) {
+      return res.status(404).json({ error: "Jogo não encontrado" });
+    }
+
+    console.log(`[SYNC-DESC] Refazendo busca de tradução para: ${game.title}`);
+
+    // 1. Tenta buscar na BGG primeiro
+    const searchResult = await searchBGG(game.title);
+    if (searchResult) {
+      const bggDetails = await getBGGDetails(searchResult.id);
+      
+      if (bggDetails?.description?.trim()) {
+        const translated = await translateToPT(bggDetails.description);
+        if (translated?.trim()) {
+          return res.json({ description: translated.trim() });
+        }
+      }
+    }
+
+    // 2. Se falhar a BGG ou a tradução, faz o fallback pra Ludopedia
+    if (game.ludopediaId) {
+      const ludoDetails = await getLudopediaGameDetails(game.ludopediaId);
+      if (ludoDetails?.description?.trim()) {
+        return res.json({ description: ludoDetails.description.trim() });
+      }
+    }
+
+    // Se realmente não achar em lugar nenhum
+    return res.json({ description: "" });
+    
+  } catch (error) {
+    console.error("Erro ao sincronizar descrição:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar descrição na API externa." });
+  }
+});
+
 export { gameRoutes };

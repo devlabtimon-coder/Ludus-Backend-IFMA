@@ -9,6 +9,11 @@ import {
   canClientRentTier,
   incrementRentalCountAndMaybePromote,
 } from "../services/category.service";
+// 👇 Importando as novas regras de negócio do sistema de gamificação
+import {
+  applyCancellationPenalty,
+  applyRentalReturnPoints,
+} from "../services/engagement.service";
 
 export const rentalRoutes = Router();
 
@@ -16,6 +21,9 @@ function toISODateString(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+// =======================================================
+// POST: Criar Reserva (Com Auto-Assign)
+// =======================================================
 rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const userId = req.user.id;
 
@@ -132,15 +140,12 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
       }
 
       // ==========================================
-      // LÓGICA DE DISTRIBUIÇÃO (AUTO-ASSIGN) 🔥
+      // LÓGICA DE DISTRIBUIÇÃO (AUTO-ASSIGN)
       // ==========================================
-      
-      // 1. Pega todas as cópias físicas do jogo (ativas)
       const availableCopies = await tx.gameCopy.findMany({
         where: { gameId: game.id, available: true }
       });
 
-      // 2. Procura todas as reservas ATIVAS no mesmo horário
       const overlappingRentals = await tx.rental.findMany({
         where: {
           gameId: game.id,
@@ -151,41 +156,31 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         select: { copyId: true }
       });
 
-      // Quais caixas já estão reservadas neste horário?
-      // Se copyId for null, significa que o jogo Original está ocupado.
       const takenCopyIds = overlappingRentals.map(r => r.copyId);
       const isOriginalTaken = takenCopyIds.includes(null);
 
       let assignedCopyId: string | null | undefined = undefined;
 
-      // Se o usuário mandou o ID exato de uma cópia (Ex: tela administrativa)
       if (copyId) {
         if (takenCopyIds.includes(String(copyId))) {
           return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
         }
         assignedCopyId = String(copyId);
-      } 
-      // Se o usuário só quer alugar o jogo pelo app (Qualquer caixa serve)
-      else {
-        // Tenta a caixa original primeiro (se for permitido e estiver livre)
+      } else {
         if (game.allowOriginalRental && game.available && !isOriginalTaken) {
-          assignedCopyId = null; // null = Original
+          assignedCopyId = null; 
         } else {
-          // Se a original não der, varre a lista de cópias e pega a primeira que não estiver na lista de ocupadas!
           const freeCopy = availableCopies.find(c => !takenCopyIds.includes(c.id));
-          
           if (freeCopy) {
             assignedCopyId = freeCopy.id;
           }
         }
       }
 
-      // Se passou por toda a checagem e não achou NENHUMA caixa livre...
       if (assignedCopyId === undefined) {
         return { status: 409, body: { error: "Todos os exemplares deste jogo já estão reservados neste horário.", code: "TIME_SLOT_TAKEN" } } as const;
       }
 
-      // Precisamos salvar os Snapshots da cópia pra não perder histórico se ela for apagada depois
       let copyCodeSnapshot = null;
       let copyNumberSnapshot = null;
 
@@ -197,7 +192,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         }
       }
 
-      // 3. Efetiva a reserva!
       const rental = await tx.rental.create({
         data: {
           userId,
@@ -216,7 +210,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
       return { status: 201, body: rental } as const;
     });
 
-    // Se deu certo, notifica
     if (result.status === 201 && "id" in result.body) {
       await incrementRentalCountAndMaybePromote(userId);
 
@@ -242,7 +235,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
   }
 });
 
-
 // =======================================================
 // GET: Listar Meus Aluguéis
 // =======================================================
@@ -253,20 +245,10 @@ rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       orderBy: { startDate: "desc" },
       include: {
         game: {
-          select: {
-            id: true,
-            title: true,
-            cover: true,
-            isActive: true,
-            isVisible: true,
-          },
+          select: { id: true, title: true, cover: true, isActive: true, isVisible: true },
         },
         copy: {
-          select: {
-            id: true,
-            code: true,
-            number: true,
-          },
+          select: { id: true, code: true, number: true },
         },
       },
     });
@@ -285,11 +267,7 @@ rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       copy: r.copy
         ? r.copy
         : r.copyCodeSnapshot || r.copyNumberSnapshot
-        ? {
-            id: null,
-            code: r.copyCodeSnapshot,
-            number: r.copyNumberSnapshot,
-          }
+        ? { id: null, code: r.copyCodeSnapshot, number: r.copyNumberSnapshot }
         : null,
     }));
 
@@ -301,7 +279,7 @@ rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
 });
 
 // =======================================================
-// PATCH: Cancelar Reserva
+// PATCH: Cancelar Reserva (Com Punição por Ghosting)
 // =======================================================
 rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const { id } = req.params;
@@ -311,17 +289,8 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
     const rental = await prisma.rental.findUnique({
       where: { id: String(id) },
       include: {
-        game: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-        copy: {
-          select: {
-            id: true,
-          },
-        },
+        game: { select: { id: true, title: true } },
+        copy: { select: { id: true } },
       },
     });
 
@@ -341,23 +310,18 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
         where: { id: rental.id },
         data: { status: "CANCELED" },
         include: {
-          game: {
-            select: {
-              id: true,
-              title: true,
-              cover: true,
-            },
-          },
-          copy: {
-            select: {
-              id: true,
-              code: true,
-              number: true,
-            },
-          },
+          game: { select: { id: true, title: true, cover: true } },
+          copy: { select: { id: true, code: true, number: true } },
         },
       });
     });
+
+    // 👇 APLICA A PENALIDADE DE PONTOS POR CANCELAR A RESERVA (GHOSTING)
+    try {
+      await applyCancellationPenalty(userId);
+    } catch (penaltyErr) {
+      console.error("Erro ao aplicar penalidade de cancelamento:", penaltyErr);
+    }
 
     try {
       await notifyUser({
@@ -384,19 +348,11 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
       ...updated,
       game: updated.game
         ? updated.game
-        : {
-            id: null,
-            title: updated.gameTitleSnapshot,
-            cover: updated.gameCoverSnapshot,
-          },
+        : { id: null, title: updated.gameTitleSnapshot, cover: updated.gameCoverSnapshot },
       copy: updated.copy
         ? updated.copy
         : updated.copyCodeSnapshot || updated.copyNumberSnapshot
-        ? {
-            id: null,
-            code: updated.copyCodeSnapshot,
-            number: updated.copyNumberSnapshot,
-          }
+        ? { id: null, code: updated.copyCodeSnapshot, number: updated.copyNumberSnapshot }
         : null,
     };
 
@@ -408,7 +364,7 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
 });
 
 // =======================================================
-// PATCH: Finalizar / Devolver
+// PATCH: Finalizar / Devolver (Com Cálculo de Pontos de Tier/Atraso)
 // =======================================================
 rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
   const { id } = req.params;
@@ -416,6 +372,10 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
   try {
     const rental = await prisma.rental.findUnique({
       where: { id: String(id) },
+      // 👇 Precisamos buscar o game para saber o 'tier' (peso do jogo) na hora de dar os pontos
+      include: {
+        game: { select: { tier: true } }
+      }
     });
 
     if (!rental) {
@@ -428,6 +388,9 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
       });
     }
 
+    // 👇 Verifica se a devolução está atrasada (Data Atual > Data Combinada)
+    const isLate = new Date() > new Date(rental.endDate);
+
     const updated = await prisma.rental.update({
       where: { id: rental.id },
       data: {
@@ -436,11 +399,19 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
       },
     });
 
+    // Se o usuário completou mais aluguéis e tem os requisitos, promove ele de Categoria (Starter -> Bronze, etc)
     await incrementRentalCountAndMaybePromote(rental.userId);
+
+    // 👇 APLICA A LOGICA DE PONTUAÇÃO E PENALIDADE DE ATRASO
+    try {
+      await applyRentalReturnPoints(rental.userId, rental.game?.tier || null, isLate);
+    } catch (pointsErr) {
+      console.error("Erro ao processar pontos de devolução:", pointsErr);
+    }
 
     return res.json(updated);
   } catch (err) {
-    console.error(err);
+    console.error("Erro ao finalizar aluguel:", err);
     return res.status(500).json({ error: "Erro ao finalizar aluguel" });
   }
 });

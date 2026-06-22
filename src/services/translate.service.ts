@@ -38,7 +38,7 @@ export async function translateToPT(text: string) {
           Authorization: `Bearer ${GITHUB_MODELS_TOKEN}`,
           "Content-Type": "application/json",
         },
-        timeout: 20000,
+        timeout: 60000,
       }
     );
 
