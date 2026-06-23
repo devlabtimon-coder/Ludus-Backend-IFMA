@@ -9,7 +9,6 @@ import {
   canClientRentTier,
   incrementRentalCountAndMaybePromote,
 } from "../services/category.service";
-// 👇 Importando as novas regras de negócio do sistema de gamificação
 import {
   applyCancellationPenalty,
   applyRentalReturnPoints,
@@ -22,7 +21,7 @@ function toISODateString(date: Date) {
 }
 
 // =======================================================
-// POST: Criar Reserva (Com Auto-Assign)
+// POST: Criar Reserva (Com Auto-Assign e Buffer de 30 min)
 // =======================================================
 rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const userId = req.user.id;
@@ -140,20 +139,33 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
       }
 
       // ==========================================
-      // LÓGICA DE DISTRIBUIÇÃO (AUTO-ASSIGN)
+      // LÓGICA DE DISTRIBUIÇÃO E CONFLITOS (30 MIN BUFFER)
       // ==========================================
       const availableCopies = await tx.gameCopy.findMany({
         where: { gameId: game.id, available: true }
       });
 
-      const overlappingRentals = await tx.rental.findMany({
+      // Busca TODOS os aluguéis pendentes ou ativos para este jogo
+      const allActiveRentals = await tx.rental.findMany({
         where: {
           gameId: game.id,
           status: { in: ["PENDING", "ACTIVE"] },
-          startDate: { lt: endDate },
-          endDate: { gt: startDate }
         },
-        select: { copyId: true }
+        select: { copyId: true, startDate: true, endDate: true }
+      });
+
+      // Filtra no JavaScript aplicando a regra do Buffer de 30 min na devolução
+      const BUFFER_MS = 30 * 60 * 1000; // 30 minutos em milissegundos
+      const requestedStartMs = startDate.getTime();
+      const requestedEndMs = endDate.getTime();
+
+      const overlappingRentals = allActiveRentals.filter((rental) => {
+        const rentalStartMs = rental.startDate.getTime();
+        const rentalEndWithBufferMs = rental.endDate.getTime() + BUFFER_MS;
+
+        // Há conflito se a nova reserva começar ANTES do jogo ser limpo/conferido
+        // E terminar DEPOIS que o aluguel antigo começou
+        return requestedStartMs < rentalEndWithBufferMs && requestedEndMs > rentalStartMs;
       });
 
       const takenCopyIds = overlappingRentals.map(r => r.copyId);
@@ -316,7 +328,6 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
       });
     });
 
-    // 👇 APLICA A PENALIDADE DE PONTOS POR CANCELAR A RESERVA (GHOSTING)
     try {
       await applyCancellationPenalty(userId);
     } catch (penaltyErr) {
@@ -372,7 +383,6 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
   try {
     const rental = await prisma.rental.findUnique({
       where: { id: String(id) },
-      // 👇 Precisamos buscar o game para saber o 'tier' (peso do jogo) na hora de dar os pontos
       include: {
         game: { select: { tier: true } }
       }
@@ -388,7 +398,6 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
       });
     }
 
-    // 👇 Verifica se a devolução está atrasada (Data Atual > Data Combinada)
     const isLate = new Date() > new Date(rental.endDate);
 
     const updated = await prisma.rental.update({
@@ -399,10 +408,8 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
       },
     });
 
-    // Se o usuário completou mais aluguéis e tem os requisitos, promove ele de Categoria (Starter -> Bronze, etc)
     await incrementRentalCountAndMaybePromote(rental.userId);
 
-    // 👇 APLICA A LOGICA DE PONTUAÇÃO E PENALIDADE DE ATRASO
     try {
       await applyRentalReturnPoints(rental.userId, rental.game?.tier || null, isLate);
     } catch (pointsErr) {
@@ -417,18 +424,15 @@ rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
 });
 
 // =======================================================
-// GET: Calendário (Dias Indisponíveis)
+// GET: Horários Disponíveis por Dia (Blocos de 30min)
 // =======================================================
-rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (req, res) => {
+rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, res) => {
   const { gameId } = req.params;
-  const { year, month } = req.query; 
+  const { date } = req.query; // Espera receber ex: "2026-06-25"
 
-  if (!year || !month) {
-    return res.status(400).json({ error: "Ano e mês são obrigatórios." });
+  if (!date) {
+    return res.status(400).json({ error: "A data (YYYY-MM-DD) é obrigatória." });
   }
-
-  const targetYear = parseInt(String(year));
-  const targetMonth = parseInt(String(month));
 
   try {
     const game = await prisma.game.findUnique({
@@ -437,74 +441,72 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
     });
 
     if (!game) {
-      return res.json({ unavailableDates: ["ALL"] });
+      return res.status(404).json({ error: "Jogo não encontrado." });
     }
 
     const copiesCount = await prisma.gameCopy.count({
-      where: {
-        gameId: String(gameId),
-        available: true,
-      },
+      where: { gameId: String(gameId), available: true },
     });
-
     const totalCopies = copiesCount + (game.allowOriginalRental && game.available ? 1 : 0);
 
-    if (totalCopies === 0) {
-      return res.json({ unavailableDates: ["ALL"] });
-    }
+    const targetDate = new Date(`${date}T00:00:00-03:00`); // Fuso de Brasília
     
-    const startOfMonth = new Date(targetYear, targetMonth, 1);
-    const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
-   
-    const rentalsInMonth = await prisma.rental.findMany({
+    // Verifica se é fim de semana ou feriado (bloqueia o dia todo)
+    const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
+    const holidays = await getHolidaysByYear(targetDate.getFullYear());
+    const isHoliday = holidays.includes(String(date));
+
+    if (isWeekend || isHoliday || totalCopies === 0) {
+      return res.json({ availableSlots: [] }); 
+    }
+
+    // Busca os aluguéis do dia para calcular as sobreposições com buffer
+    const startOfDay = new Date(`${date}T00:00:00-03:00`);
+    const endOfDay = new Date(`${date}T23:59:59-03:00`);
+    
+    const rentalsToday = await prisma.rental.findMany({
       where: {
         gameId: String(gameId),
         status: { in: ["PENDING", "ACTIVE"] },
-        startDate: { lte: endOfMonth },
-        endDate: { gte: startOfMonth },
+        startDate: { lte: endOfDay },
+        endDate: { gte: startOfDay },
       },
-      select: {
-        startDate: true,
-        endDate: true,
-      },
+      select: { startDate: true, endDate: true },
     });
 
-    const holidays = await getHolidaysByYear(targetYear);
-    const unavailableDates: string[] = [];
-    const daysInMonth = endOfMonth.getDate();
+    // Gera os slots de 30 em 30 min (das 08:00 às 18:30)
+    const slots = [];
+    const BUFFER_MS = 30 * 60 * 1000;
+    
+    for (let hour = 8; hour < 19; hour++) {
+      for (let minute of [0, 30]) {
+        if (hour === 18 && minute === 30) continue; 
+        
+        const slotStart = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
+        const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
+        
+        if (slotStart < new Date()) continue;
 
-    for (let day = 1; day <= daysInMonth; day++) {
-      const currentDate = new Date(targetYear, targetMonth, day);
-      const formattedDate = toISODateString(currentDate);
-      
-      if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
-        continue;
-      }
+        let conflictingCopies = 0;
 
-      if (holidays.includes(formattedDate)) {
-        unavailableDates.push(formattedDate);
-        continue;
-      }
-      
-      const startOfDay = new Date(targetYear, targetMonth, day, 0, 0, 0);
-      const endOfDay = new Date(targetYear, targetMonth, day, 23, 59, 59);
+        for (const r of rentalsToday) {
+          const rentalStart = r.startDate.getTime();
+          const rentalEndWithBuffer = r.endDate.getTime() + BUFFER_MS;
 
-      let conflictingRentalsThisDay = 0;
-
-      for (const rental of rentalsInMonth) {
-        if (rental.startDate <= endOfDay && rental.endDate >= startOfDay) {
-          conflictingRentalsThisDay++;
+          if (slotStart.getTime() < rentalEndWithBuffer && slotEnd.getTime() > rentalStart) {
+            conflictingCopies++;
+          }
         }
-      }
-      
-      if (conflictingRentalsThisDay >= totalCopies) {
-        unavailableDates.push(formattedDate);
+
+        if (conflictingCopies < totalCopies) {
+          slots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+        }
       }
     }
 
-    return res.json({ unavailableDates });
+    return res.json({ availableSlots: slots });
   } catch (err) {
-    console.error("Erro ao buscar datas indisponíveis:", err);
-    return res.status(500).json({ error: "Erro interno ao calcular disponibilidade." });
+    console.error("Erro ao buscar disponibilidade:", err);
+    return res.status(500).json({ error: "Erro interno ao calcular horários." });
   }
 });
