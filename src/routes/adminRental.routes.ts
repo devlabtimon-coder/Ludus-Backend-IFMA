@@ -49,15 +49,15 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       orderBy: { startDate: "desc" },
       include: {
         user: { 
-  select: { 
-    id: true, 
-    name: true, 
-    email: true, 
-    phone: true,
-    avatar: true,   // <--- ADICIONE ISSO
-    picture: true   // <--- ADICIONE ISSO
-  } 
-},
+          select: { 
+            id: true, 
+            name: true, 
+            email: true, 
+            phone: true,
+            avatar: true,   
+            picture: true   
+          } 
+        },
         game: { select: { id: true, title: true, cover: true, price: true } },
         copy: { select: { id: true, code: true, number: true, condition: true } },
       },
@@ -165,15 +165,16 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
 
     const gameTitle = rental.game?.title || rental.gameTitleSnapshot;
 
+
     if (status === RentalStatus.ACTIVE) {
       try {
         await addUserPoints({
           userId: updated.userId,
-          delta: 7,
+          delta: 5, // <-- Ajustado para +5
           reason: `RENTAL_CONFIRMED_BY_ADMIN:${updated.id}`,
         });
 
-  await notifyUser({
+        await notifyUser({
           userId: updated.userId,
           type: NotificationType.RENTAL_CREATED,
           title: "Aluguel Confirmado! ✅",
@@ -182,17 +183,18 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
           data: { route: "/rentals", rentalId: updated.id },
         });
 
-        // RF020 — Progressão automática de categoria de cliente
+        
         await incrementRentalCountAndMaybePromote(updated.userId);
       } catch (err) {
         console.error("Erro ao processar pontos ou notificação de confirmação:", err);
       }
     }
 
+  
     if (status === RentalStatus.RETURNED) {
       try {
         const isOverdue = new Date() > rental.endDate;
-        const pointsDelta = isOverdue ? -5 : 5;
+        const pointsDelta = isOverdue ? 2 : 5; // <-- Ajustado para +2 em caso de atraso
         const reasonPrefix = isOverdue
           ? "RENTAL_RETURNED_LATE"
           : "RENTAL_RETURNED_ON_TIME";
@@ -207,10 +209,10 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
           userId: updated.userId,
           type: NotificationType.RENTAL_RETURN_CONFIRMED,
           title: isOverdue
-            ? "Jogo Devolvido 📥"
+            ? "Jogo Devolvido com Atraso 📥" // <-- Texto ajustado
             : "Parabéns pela Devolução! 🏆",
           body: isOverdue
-            ? `Você devolveu "${gameTitle}". Tente cumprir o prazo na próxima vez para manter seus pontos altos e evitar suspensões.`
+            ? `Você devolveu "${gameTitle}" com atraso e recebeu apenas ${pointsDelta} pontos. Tente cumprir o prazo na próxima vez para evoluir de nível mais rápido!` // <-- Texto ajustado
             : `Obrigado por devolver "${gameTitle}" no prazo! Você ganhou ${pointsDelta} pontos e está mais perto do próximo nível.`,
           channelId: "rentals",
           data: { route: "/rentals" },
@@ -226,4 +228,3 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
     return res.status(500).json({ error: "Erro ao atualizar aluguel" });
   }
 });
-

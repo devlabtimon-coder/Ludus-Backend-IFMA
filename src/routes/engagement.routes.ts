@@ -13,6 +13,8 @@ engagementRoutes.get("/leaderboard", ensureAuthenticated, async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 10, 50);
 
   const users = await prisma.user.findMany({
+    // 👇 Filtra para não mostrar os administradores do sistema no ranking
+    where: { role: "USER" },
     orderBy: [{ points: "desc" }, { level: "desc" }, { name: "asc" }],
     take: limit,
     select: {
@@ -56,8 +58,12 @@ engagementRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
+  // 👇 Conta apenas os alunos que estão acima
   const above = await prisma.user.count({
-    where: { points: { gt: me.points } },
+    where: { 
+      role: "USER", 
+      points: { gt: me.points } 
+    },
   });
 
   return res.json({
