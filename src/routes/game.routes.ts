@@ -292,6 +292,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       });
     }
 
+    // 👇 BUSCA OS DETALHES DA LUDOPEDIA (AGORA INCLUI AS MECÂNICAS)
     const details = await getLudopediaGameDetails(parsedLudopediaId);
 
     let finalDescription =
@@ -349,7 +350,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         ludopediaId: parsedLudopediaId,
         title: cleanTitle,
         cover,
-        price: parsedPrice,
+        price: 0, // 👈 TRAVEI O PREÇO EM ZERO PARA O FLUXO DO IFMA
         available: true,
         isActive: true,
         isVisible: true,
@@ -361,6 +362,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         minAge: finalMinAge,
         minTime: finalMinTime,
         maxTime: finalMaxTime,
+        mechanics: details?.mechanics || [], // 👈 SALVANDO AS MECÂNICAS DIRETAMENTE NO BANCO
       },
     });
 

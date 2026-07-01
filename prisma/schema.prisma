@@ -54,6 +54,7 @@ enum NotificationType {
 }
 
 enum RegistrationStatus {
+  NOT_SUBMITTED
   PENDING
   APPROVED
   REJECTED
@@ -102,7 +103,8 @@ model User {
   documentBackImage  String?
   addressProof       String?
   selfieWithId       String?
-  registrationStatus RegistrationStatus @default(PENDING)
+  enrollmentProof    String?
+  registrationStatus RegistrationStatus @default(NOT_SUBMITTED)
   rejectReason       String?
 
   clientCategory    ClientCategory @default(STARTER)
@@ -141,11 +143,12 @@ model Game {
 
   tier GameTier @default(BRONZE)
 
-  minPlayers Int  @default(1)
+  minPlayers Int      @default(1)
   maxPlayers Int?
-  minAge     Int  @default(0)
-  minTime    Int  @default(0)
+  minAge     Int      @default(0)
+  minTime    Int      @default(0)
   maxTime    Int?
+  mechanics  String[]
 
   userId String
   owner  User   @relation(fields: [userId], references: [id])
@@ -206,12 +209,12 @@ model UserPointsLog {
 }
 
 model GameCopy {
-  id        String  @id @default(uuid())
-  number    Int
-  code      String?
-  condition String?
-  available Boolean @default(true)
-  observations String?  @db.Text
+  id           String  @id @default(uuid())
+  number       Int
+  code         String?
+  condition    String?
+  available    Boolean @default(true)
+  observations String? @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -258,10 +261,10 @@ model GameAvailabilityWatch {
 }
 
 model Rental {
-  id        String       @id @default(uuid())
+  id                 String       @id @default(uuid())
   startDate          DateTime
-  endDate   DateTime
-  status    RentalStatus @default(PENDING)
+  endDate            DateTime
+  status             RentalStatus @default(PENDING)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

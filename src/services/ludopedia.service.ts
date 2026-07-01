@@ -41,6 +41,11 @@ export async function getLudopediaGameDetails(idJogo: number) {
     console.log("DETALHES COMPLETOS DA LUDOPEDIA:", response.data);
     const j = response.data;
 
+    // 👇 MAPEANDO AS MECÂNICAS DA LUDOPEDIA PARA UM ARRAY DE STRINGS
+    const extractedMechanics = j.mecanicas && Array.isArray(j.mecanicas)
+      ? j.mecanicas.map((m: any) => m.nm_mecanica || m.nome || "")
+      : [];
+
     return {
       description: j.de_jogo || j.resumo || "",
       rating: j.vl_media_nota || 0,
@@ -51,6 +56,7 @@ export async function getLudopediaGameDetails(idJogo: number) {
       maxTime: j.vl_tempo_jogo,
       yearPublished: j.ano_publicacao || j.ano || null,
       title: j.nm_jogo || j.nome || null,
+      mechanics: extractedMechanics, // <-- ENVIANDO PARA O PRISMA
     };
   } catch (error) {
     console.error("Erro ao buscar detalhes por ID:", error);
