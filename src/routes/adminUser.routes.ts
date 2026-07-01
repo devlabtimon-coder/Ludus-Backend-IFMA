@@ -63,15 +63,11 @@ adminUserRoutes.patch("/:id/verify-academic", ensureAuthenticated, ensureAdmin, 
 });
 
 // ==========================================
-// MODO PADRÃO (SaaS): Aprovação de Documentos
+// MODO PADRÃO & IFMA: Aprovação de Documentos
 // ==========================================
 
 // Aprovar Documentos
 adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  if (process.env.IFMA_MODE === "true") {
-    return res.status(403).json({ error: "No modo IFMA, a verificação é automática pelo SUAP." });
-  }
-
   const id = ensureString(req.params.id);
   if (!id) return res.status(400).json({ error: "ID do usuário é obrigatório." });
 
@@ -79,18 +75,27 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
 
+    const isIfmaMode = process.env.IFMA_MODE === "true";
+
+    const updateData: any = {
+      registrationStatus: "APPROVED",
+      rejectReason: null 
+    };
+
+    // Se estiver no IFMA, a aprovação manual dos documentos já serve como validação acadêmica!
+    if (isIfmaMode) {
+      updateData.isAcademicVerified = true;
+      updateData.academicVerifiedAt = new Date();
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id },
-      data: {
-        registrationStatus: "APPROVED",
-        rejectReason: null // Limpa caso houvesse rejeição anterior
-      }
+      data: updateData
     });
 
-    // Avisa o cliente no app que ele já pode alugar jogos!
     await notifyUser({
       userId: id,
-      type: NotificationType.SYSTEM_ANNOUNCEMENT, //[cite: 2]
+      type: NotificationType.SYSTEM_ANNOUNCEMENT,
       title: "Cadastro Aprovado! 🎉",
       body: "Seus documentos foram validados. Você já pode realizar aluguéis no nosso acervo!",
       channelId: "system",
@@ -105,10 +110,6 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
 
 // Rejeitar Documentos
 adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  if (process.env.IFMA_MODE === "true") {
-    return res.status(403).json({ error: "No modo IFMA, a verificação é automática pelo SUAP." });
-  }
-
   const id = ensureString(req.params.id);
   const { reason } = req.body;
 
@@ -121,18 +122,26 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
 
+    const isIfmaMode = process.env.IFMA_MODE === "true";
+
+    const updateData: any = {
+      registrationStatus: "REJECTED",
+      rejectReason: reason.trim()
+    };
+
+    if (isIfmaMode) {
+      updateData.isAcademicVerified = false;
+      updateData.academicVerifiedAt = null;
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id },
-      data: {
-        registrationStatus: "REJECTED",
-        rejectReason: reason.trim()
-      }
+      data: updateData
     });
 
-    // Manda push de alerta pro cliente corrigir
     await notifyUser({
       userId: id,
-      type: NotificationType.VERIFY_REQUIRED, //[cite: 2]
+      type: NotificationType.VERIFY_REQUIRED,
       title: "Atenção ao seu cadastro",
       body: `Houve um problema com seus documentos: ${reason.trim()}`,
       channelId: "system",
@@ -144,7 +153,6 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
     return res.status(500).json({ error: "Erro interno ao rejeitar documentos." });
   }
 });
-
 // ==========================================
 // LISTAR TODOS OS USUÁRIOS (COM DOCUMENTOS)
 // ==========================================
@@ -163,6 +171,7 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         isBlocked: true,
         createdAt: true,
         selfieWithId: true,
+        enrollmentProof: true,
         
         // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
         cpf: true,

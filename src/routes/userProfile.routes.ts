@@ -414,7 +414,7 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
 });
 
 // =======================================================
-// ROTA: ENVIO E ATUALIZAÇÃO DE DOCUMENTOS (KYC)
+// ROTA: ENVIO E ATUALIZAÇÃO DE DOCUMENTOS (KYC) - HÍBRIDO
 // =======================================================
 userProfileRoutes.patch(
   "/me/documents",
@@ -424,15 +424,34 @@ userProfileRoutes.patch(
     { name: "documentBack", maxCount: 1 },
     { name: "addressProof", maxCount: 1 },
     { name: "selfieWithId", maxCount: 1 },
+    { name: "enrollmentProof", maxCount: 1 }, // <--- ADICIONADO PARA O IFMA
   ]),
   async (req, res) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+      const { matricula } = req.body; // Vem junto com o form-data
+      const isIfmaMode = process.env.IFMA_MODE === "true";
 
       const docFrontFile = files?.documentFront?.[0];
       const docBackFile = files?.documentBack?.[0];
       const addressFile = files?.addressProof?.[0];
       const selfieFile = files?.selfieWithId?.[0];
+      const enrollmentFile = files?.enrollmentProof?.[0]; // <--- ADICIONADO
+
+      // Validações de envio dependendo do modo
+      if (!docFrontFile || !docBackFile) {
+        return res.status(400).json({ error: "Frente e verso do documento são obrigatórios." });
+      }
+
+      if (isIfmaMode) {
+        if (!enrollmentFile || !matricula) {
+          return res.status(400).json({ error: "O comprovante e o número de matrícula são obrigatórios." });
+        }
+      } else {
+        if (!addressFile || !selfieFile) {
+          return res.status(400).json({ error: "O comprovante de residência e a selfie são obrigatórios." });
+        }
+      }
 
       // Busca os documentos atuais para deletar no Cloudinary caso sejam substituídos
       const currentUser = await prisma.user.findUnique({
@@ -442,6 +461,7 @@ userProfileRoutes.patch(
           documentBackImage: true,
           addressProof: true,
           selfieWithId: true,
+          enrollmentProof: true,
         },
       });
 
@@ -450,7 +470,7 @@ userProfileRoutes.patch(
           const stream = cloudinary.uploader.upload_stream(
             {
               folder: "ludus/documents",
-              resource_type: "image",
+              resource_type: "image", // ou 'auto' se o comprovante de matricula for PDF
               public_id: publicId,
               overwrite: true,
               transformation: [{ quality: "auto", fetch_format: "auto" }],
@@ -466,12 +486,16 @@ userProfileRoutes.patch(
 
       const updateData: any = {
         registrationStatus: "PENDING",
-        rejectReason: null, // Limpa qualquer rejeição anterior ao enviar novo documento
+        rejectReason: null, 
       };
+
+      if (isIfmaMode) {
+        updateData.matricula = String(matricula).trim();
+      }
 
       const oldFilesToDelete: string[] = [];
 
-      // Uploads Condicionais e Marcação de arquivos velhos para exclusão
+      // Uploads Condicionais
       if (docFrontFile) {
         const result = await uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`);
         updateData.documentFrontImage = result.secure_url;
@@ -484,6 +508,7 @@ userProfileRoutes.patch(
         if (currentUser?.documentBackImage) oldFilesToDelete.push(currentUser.documentBackImage);
       }
       
+      // Salva apenas se vier (Modo Padrão)
       if (addressFile) {
         const result = await uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`);
         updateData.addressProof = result.secure_url;
@@ -496,7 +521,14 @@ userProfileRoutes.patch(
         if (currentUser?.selfieWithId) oldFilesToDelete.push(currentUser.selfieWithId);
       }
 
-      // Atualiza o banco de dados com os novos links
+      // Salva apenas se vier (Modo IFMA)
+      if (enrollmentFile) {
+        const result = await uploadToCloudinary(enrollmentFile.buffer, `enrollment-${req.user.id}-${Date.now()}`);
+        updateData.enrollmentProof = result.secure_url;
+        if (currentUser?.enrollmentProof) oldFilesToDelete.push(currentUser.enrollmentProof);
+      }
+
+      // Atualiza o banco de dados
       const updatedUser = await prisma.user.update({
         where: { id: req.user.id },
         data: updateData,
@@ -508,14 +540,14 @@ userProfileRoutes.patch(
         },
       });
 
-      // CLEANUP: Deleta silenciosamente os documentos substituídos no Cloudinary
+      // CLEANUP Cloudinary
       for (const oldUrl of oldFilesToDelete) {
         const publicId = extractPublicIdFromCloudinaryUrl(oldUrl);
         if (publicId) {
           try {
             await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
           } catch (err) {
-            console.error(`Erro ao remover documento antigo (${publicId}) do Cloudinary:`, err);
+            console.error(`Erro ao remover documento antigo (${publicId}):`, err);
           }
         }
       }
@@ -529,6 +561,9 @@ userProfileRoutes.patch(
       console.error("Erro ao processar documentos:", err);
       if (err?.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({ error: "As imagens devem ter no máximo 5MB." });
+      }
+      if (err?.code === "P2002") {
+        return res.status(409).json({ error: "Essa matrícula já está cadastrada." });
       }
       return res.status(500).json({ error: "Erro interno ao enviar documentos." });
     }
