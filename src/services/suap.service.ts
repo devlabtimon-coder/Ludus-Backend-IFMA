@@ -1,145 +1,101 @@
-/**
- * suap.service.ts
- *
- * Faz login temporário no SUAP via scraping HTTP para validar
- * que o aluno é real. A senha do SUAP NUNCA é armazenada.
- *
- * Fluxo:
- *  1. GET /accounts/login/  → captura csrfmiddlewaretoken + cookie csrftoken
- *  2. POST /accounts/login/ → envia credenciais + csrf
- *  3. Verifica redirecionamento → se for pra "/" o login funcionou
- *  4. Sessão é imediatamente descartada
- */
 
 import axios from "axios";
 import * as cheerio from "cheerio";
 
 const SUAP_BASE = "https://suap.ifma.edu.br";
 const LOGIN_URL = `${SUAP_BASE}/accounts/login/`;
-
-// Timeout generoso pois o SUAP pode ser lento
-const TIMEOUT_MS = 12_000;
+const TIMEOUT_MS = 15_000; 
 
 export type SuapVerifyResult =
   | { ok: true; matricula: string; nome?: string }
   | { ok: false; reason: "INVALID_CREDENTIALS" | "SUAP_UNAVAILABLE" | "TIMEOUT" };
 
-/**
- * Verifica se as credenciais do SUAP são válidas.
- * Retorna ok=true se o login foi bem-sucedido.
- */
 export async function verifySuapCredentials(
   username: string,
   password: string
 ): Promise<SuapVerifyResult> {
-  // Cria uma instância isolada do axios com jar de cookies manual
+
   const cookieJar: Record<string, string> = {};
 
-  function parseCookies(setCookieHeader: string[] | undefined) {
-    if (!setCookieHeader) return;
-    for (const cookie of setCookieHeader) {
-      const [pair] = cookie.split(";");
-      const [key, value] = pair.trim().split("=");
-      if (key && value) cookieJar[key.trim()] = value.trim();
-    }
+
+  function updateCookieJar(headers: any) {
+    const setCookie = headers["set-cookie"];
+    if (!setCookie) return;
+
+    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    cookies.forEach((cookieStr) => {
+      const parts = cookieStr.split(";");
+      const [name, value] = parts[0].split("=");
+      if (name && value) {
+        cookieJar[name.trim()] = value.trim();
+      }
+    });
   }
 
-  function cookieString() {
+  function getCookieString() {
     return Object.entries(cookieJar)
       .map(([k, v]) => `${k}=${v}`)
       .join("; ");
   }
 
-  //Passo 1: GET na página de login para pegar CSRF 
+
   let csrfToken: string;
 
   try {
     const getRes = await axios.get(LOGIN_URL, {
       timeout: TIMEOUT_MS,
-      maxRedirects: 5,
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; LudusIFMA/1.0; Academic Verification)",
-        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
-      validateStatus: (s) => s < 500,
     });
 
-    // Captura cookies do GET
-    parseCookies(
-      Array.isArray(getRes.headers["set-cookie"])
-        ? getRes.headers["set-cookie"]
-        : getRes.headers["set-cookie"]
-        ? [getRes.headers["set-cookie"] as string]
-        : []
-    );
+    updateCookieJar(getRes.headers);
 
-    // Extrai csrfmiddlewaretoken do HTML
-    const $ = cheerio.load(getRes.data as string);
-    const tokenFromInput = $('input[name="csrfmiddlewaretoken"]').val();
-    const tokenFromCookie = cookieJar["csrftoken"];
-
-    csrfToken = String(tokenFromInput || tokenFromCookie || "");
+    const $ = cheerio.load(getRes.data);
+    // Tenta extrair do input oculto e depois do cookie
+    const tokenFromInput = $('input[name="csrfmiddlewaretoken"]').attr("value");
+    csrfToken = tokenFromInput || cookieJar["csrftoken"] || "";
 
     if (!csrfToken) {
-      console.error("[SUAP] Não foi possível extrair o CSRF token.");
-      return { ok: false, reason: "SUAP_UNAVAILABLE" };
+      throw new Error("Token não encontrado no HTML");
     }
   } catch (err: any) {
-    console.error("[SUAP] Erro no GET de login:", err?.message);
-    if (err?.code === "ECONNABORTED" || err?.message?.includes("timeout")) {
-      return { ok: false, reason: "TIMEOUT" };
-    }
+    console.error("[SUAP] Falha ao obter CSRF:", err.message);
     return { ok: false, reason: "SUAP_UNAVAILABLE" };
   }
 
-  //  Passo 2: POST com as credenciais 
+
   try {
     const params = new URLSearchParams();
+    params.append("csrfmiddlewaretoken", csrfToken);
     params.append("username", username.trim());
     params.append("password", password);
-    params.append("csrfmiddlewaretoken", csrfToken);
     params.append("next", "/");
 
     const postRes = await axios.post(LOGIN_URL, params.toString(), {
       timeout: TIMEOUT_MS,
-      maxRedirects: 0,           // NÃO seguir redirect é o que nos diz se deu certo
-      validateStatus: (s) => s < 500,
+      maxRedirects: 0, 
+      validateStatus: (status) => status >= 200 && status < 400,
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; LudusIFMA/1.0; Academic Verification)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Content-Type": "application/x-www-form-urlencoded",
-        Referer: LOGIN_URL,
-        Cookie: cookieString(),
+        "Referer": LOGIN_URL,
+        "Cookie": getCookieString(),
       },
     });
 
-    // Passo 3: Analisar a resposta 
-    //
-    // Django redireciona (302) para "/" em caso de sucesso.
-    // Se ficar em /accounts/login/ ou retornar 200 com form, é credencial errada.
-
-    const redirectedTo = postRes.headers["location"] || "";
-    const isSuccess =
-      postRes.status === 302 &&
-      redirectedTo !== "" &&
-      !redirectedTo.includes("/accounts/login");
-
-    if (!isSuccess) {
-      return { ok: false, reason: "INVALID_CREDENTIALS" };
+    
+    const location = postRes.headers["location"];
+    if (postRes.status === 302 && location && (location === "/" || location.includes("/?next="))) {
+      return {
+        ok: true,
+        matricula: username.trim(),
+      };
     }
 
-    // ── Passo 4: Sessão destruída — não armazenamos nada 
-    // O username no SUAP é a própria matrícula do aluno
-    return {
-      ok: true,
-      matricula: username.trim(),
-    };
+    return { ok: false, reason: "INVALID_CREDENTIALS" };
   } catch (err: any) {
-    console.error("[SUAP] Erro no POST de login:", err?.message);
-    if (err?.code === "ECONNABORTED" || err?.message?.includes("timeout")) {
-      return { ok: false, reason: "TIMEOUT" };
-    }
+    console.error("[SUAP] Erro na requisição POST:", err.message);
     return { ok: false, reason: "SUAP_UNAVAILABLE" };
   }
 }

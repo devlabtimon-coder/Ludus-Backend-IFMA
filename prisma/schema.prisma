@@ -50,6 +50,7 @@ enum NotificationType {
   LEVEL_UP
   SYSTEM_ANNOUNCEMENT
   GAME_BACK_AVAILABLE
+  SYSTEM
 }
 
 enum RegistrationStatus {

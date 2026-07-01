@@ -170,7 +170,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
       try {
         await addUserPoints({
           userId: updated.userId,
-          delta: 5, // <-- Ajustado para +5
+          delta: 5, 
           reason: `RENTAL_CONFIRMED_BY_ADMIN:${updated.id}`,
         });
 
@@ -194,7 +194,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
     if (status === RentalStatus.RETURNED) {
       try {
         const isOverdue = new Date() > rental.endDate;
-        const pointsDelta = isOverdue ? 2 : 5; // <-- Ajustado para +2 em caso de atraso
+        const pointsDelta = isOverdue ? 2 : 5; 
         const reasonPrefix = isOverdue
           ? "RENTAL_RETURNED_LATE"
           : "RENTAL_RETURNED_ON_TIME";
@@ -209,7 +209,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
           userId: updated.userId,
           type: NotificationType.RENTAL_RETURN_CONFIRMED,
           title: isOverdue
-            ? "Jogo Devolvido com Atraso 📥" // <-- Texto ajustado
+            ? "Jogo Devolvido com Atraso 📥" 
             : "Parabéns pela Devolução! 🏆",
           body: isOverdue
             ? `Você devolveu "${gameTitle}" com atraso e recebeu apenas ${pointsDelta} pontos. Tente cumprir o prazo na próxima vez para evoluir de nível mais rápido!` // <-- Texto ajustado
