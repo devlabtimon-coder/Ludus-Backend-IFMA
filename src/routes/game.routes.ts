@@ -362,7 +362,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         minAge: finalMinAge,
         minTime: finalMinTime,
         maxTime: finalMaxTime,
-        mechanics: details?.mechanics || [], // 👈 SALVANDO AS MECÂNICAS DIRETAMENTE NO BANCO
+        mechanics: details?.mechanics || [], 
       },
     });
 
@@ -949,6 +949,40 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
   } catch (error) {
     console.error("Erro ao sincronizar descrição:", error);
     return res.status(500).json({ error: "Erro interno ao buscar descrição na API externa." });
+  }
+});
+
+
+gameRoutes.post("/:id/sync-mechanics", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  try {
+    const id = requireSingleParam(req.params.id, "id");
+    
+    const game = await prisma.game.findUnique({ where: { id } });
+    if (!game) {
+      return res.status(404).json({ error: "Jogo não encontrado" });
+    }
+
+    if (!game.ludopediaId) {
+      return res.status(400).json({ error: "Este jogo não possui ID da Ludopedia vinculado." });
+    }
+
+    console.log(`[SYNC-MEC] Buscando mecânicas para: ${game.title}`);
+
+    const ludoDetails = await getLudopediaGameDetails(game.ludopediaId);
+    
+    if (ludoDetails?.mechanics && ludoDetails.mechanics.length > 0) {
+      const updatedGame = await prisma.game.update({
+        where: { id },
+        data: { mechanics: ludoDetails.mechanics },
+      });
+      return res.json({ message: "Mecânicas sincronizadas!", mechanics: updatedGame.mechanics });
+    }
+
+    return res.status(404).json({ error: "Nenhuma mecânica encontrada para este jogo na Ludopedia." });
+    
+  } catch (error) {
+    console.error("Erro ao sincronizar mecânicas:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar mecânicas na API externa." });
   }
 });
 
