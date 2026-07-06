@@ -45,7 +45,7 @@ function buildUserResponse(user: {
   avatar: string | null;
   picture: string | null;
   
-  // 👇 ADICIONE ESTES CAMPOS NA TIPAGEM 👇
+  // ADICIONADOS ESTES CAMPOS NA TIPAGEM
   registrationStatus?: string | null;
   rejectReason?: string | null;
   documentFrontImage?: string | null;
@@ -311,9 +311,9 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail.",
     });
-  } catch (err) {
+  } catch (err: any) {
     console.log("ERRO REGISTER:", err);
-    return res.status(400).json({ error: "Erro ao iniciar cadastro" });
+    return res.status(400).json({ error: err.message || "Erro ao iniciar cadastro" });
   }
 });
 

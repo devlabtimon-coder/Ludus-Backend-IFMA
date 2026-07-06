@@ -1,13 +1,3 @@
-/**
- * ifma.routes.ts
- *
- * Rotas exclusivas da versão IFMA do Ludus:
- *   POST /auth/ifma/register     — Cadastro com matrícula + email @acad.ifma.edu.br
- *   POST /auth/ifma/verify-suap  — Verifica vínculo acadêmico via SUAP
- *   GET  /auth/ifma/status       — Retorna status de verificação do usuário logado
- *
- * Essas rotas são registradas APENAS quando IFMA_MODE=true no .env.
- */
 
 import { Router } from "express";
 import bcrypt from "bcryptjs";
@@ -19,8 +9,7 @@ import { verifySuapCredentials } from "../services/suap.service";
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Domínio institucional aceito
-const IFMA_EMAIL_DOMAIN = "@acad.ifma.edu.br";
+const IFMA_EMAIL_DOMAIN = "@ifma.edu.br";
 
 function gen6() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -34,26 +23,15 @@ function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /auth/ifma/register
-//
-// Diferenças em relação ao register padrão:
-//  - Exige email @acad.ifma.edu.br
-//  - Exige matrícula (será a mesma usada no SUAP)
-//  - Telefone é opcional (alunos podem não ter)
-//  - Salva matricula no PendingRegistration
-// ─────────────────────────────────────────────────────────────────────────────
 router.post("/register", async (req, res) => {
-  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy } =
-    req.body;
+  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy } = req.body;
 
   try {
     const cleanName = (name || "").trim();
     const cleanEmail = (email || "").trim().toLowerCase();
-    const cleanMatricula = (matricula || "").trim();
+    const cleanMatricula = (matricula || "").trim().toUpperCase(); // Maiúscula por padrão
     const cleanPhone = phone ? cleanDigits(phone) : null;
 
-    // ── Validações ────────────────────────────────────────────────────────────
     if (!cleanName) {
       return res.status(400).json({ error: "Nome é obrigatório." });
     }
@@ -73,12 +51,12 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Matrícula é obrigatória." });
     }
 
-  if (!/^\d{5}[A-Z0-9.]+\.TMN\d+$/.test(cleanMatricula)) {
-  return res.status(400).json({
-    error: "Matrícula inválida. Use o padrão institucional do Campus Timon (Ex: 20241INF.TMN0025).",
-    code: "INVALID_MATRICULA",
-  });
-}
+    if (!/^\d{5}[A-Z0-9.]+\.TMN\d+$/.test(cleanMatricula)) {
+      return res.status(400).json({
+        error: "Matrícula inválida. Use o padrão institucional do Campus Timon (Ex: 20241INF.TMN0025).",
+        code: "INVALID_MATRICULA",
+      });
+    }
 
     if (!senha || senha.length < 6) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
@@ -90,38 +68,64 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // ── Limpa pendências antigas ──────────────────────────────────────────────
+
     await prisma.pendingRegistration.deleteMany({
       where: { createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
 
-    // ── Checa duplicatas ──────────────────────────────────────────────────────
+    
     const emailExists = await prisma.user.findUnique({
       where: { email: cleanEmail },
       select: { id: true },
     });
     if (emailExists) {
-      return res.status(409).json({ error: "Este e-mail já está em uso." });
+      return res.status(400).json({ error: "Este e-mail já está em uso." });
     }
 
-    const matriculaExists = await prisma.user.findFirst({
+    const matriculaExists = await prisma.user.findUnique({
       where: { matricula: cleanMatricula },
       select: { id: true },
     });
     if (matriculaExists) {
-      return res.status(409).json({
+      return res.status(400).json({
         error: "Esta matrícula já está associada a uma conta.",
         code: "MATRICULA_IN_USE",
       });
     }
 
-    // ── Pendência já existe? ──────────────────────────────────────────────────
+    if (cleanPhone) {
+      const phoneExists = await prisma.user.findUnique({
+        where: { phone: cleanPhone },
+        select: { id: true },
+      });
+      if (phoneExists) {
+        return res.status(400).json({ error: "Telefone já cadastrado." });
+      }
+    }
+
+  
+    const pendingConflict = await prisma.pendingRegistration.findFirst({
+      where: {
+        NOT: { email: cleanEmail },
+        OR: [
+          { matricula: cleanMatricula },
+          ...(cleanPhone ? [{ phone: cleanPhone }] : [])
+        ]
+      }
+    });
+
+    if (pendingConflict) {
+      return res.status(400).json({ 
+        error: "Esta matrícula ou telefone já estão em processo de verificação por outra pessoa. Tente novamente mais tarde." 
+      });
+    }
+
     const pendingByEmail = await prisma.pendingRegistration.findUnique({
       where: { email: cleanEmail },
     });
 
     if (pendingByEmail && !isPendingExpired(pendingByEmail.createdAt)) {
-      // Rate-limit de reenvio
+
       if (pendingByEmail.lastEmailSentAt) {
         const elapsed = Date.now() - pendingByEmail.lastEmailSentAt.getTime();
         const waitMs = 30_000 - elapsed;
@@ -134,7 +138,7 @@ router.post("/register", async (req, res) => {
         }
       }
 
-      // Atualiza pendência existente com novo código
+
       const emailCode = gen6();
       const hash = await bcrypt.hash(senha, 10);
 
@@ -161,7 +165,11 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // ── Cria novo pendingRegistration ─────────────────────────────────────────
+    if (pendingByEmail && isPendingExpired(pendingByEmail.createdAt)) {
+      await prisma.pendingRegistration.delete({ where: { id: pendingByEmail.id } });
+    }
+
+
     const hash = await bcrypt.hash(senha, 10);
     const emailCode = gen6();
 
@@ -185,19 +193,17 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail institucional.",
     });
+
   } catch (err: any) {
+   
     console.error("ERRO /ifma/register:", err);
-    return res.status(500).json({ error: "Erro ao iniciar cadastro." });
+    return res.status(400).json({ 
+      error: err.message || "Erro interno ao iniciar cadastro. Verifique os dados fornecidos." 
+    });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /auth/ifma/verify-suap
-//
-// Chamado APÓS o login normal do Ludus (usuário já autenticado).
-// Recebe as credenciais do SUAP, verifica e marca isAcademicVerified=true.
-// A senha do SUAP NUNCA é salva.
-// ─────────────────────────────────────────────────────────────────────────────
+
 router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
   const { suapUsername, suapPassword } = req.body;
 
@@ -207,7 +213,6 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
     });
   }
 
-  // Já está verificado?
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
     select: { id: true, isAcademicVerified: true, matricula: true },
@@ -224,7 +229,6 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
     });
   }
 
-  // ── Scraping do SUAP ──────────────────────────────────────────────────────
   const result = await verifySuapCredentials(suapUsername, suapPassword);
 
   if (!result.ok) {
@@ -248,13 +252,11 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
     });
   }
 
-  // ── Sucesso — marca usuário como verificado ───────────────────────────────
   const updatedUser = await prisma.user.update({
     where: { id: req.user.id },
     data: {
       isAcademicVerified: true,
       academicVerifiedAt: new Date(),
-      // Se a matrícula ainda não foi salva (ex: cadastro via Google), salva agora
       matricula: user.matricula ?? result.matricula,
     },
     select: {
@@ -275,12 +277,7 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /auth/ifma/status
-//
-// Retorna o status de verificação acadêmica do usuário logado.
-// O app consulta essa rota após login para saber se deve exibir a tela do SUAP.
-// ─────────────────────────────────────────────────────────────────────────────
+
 router.get("/status", ensureAuthenticated, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -307,9 +304,7 @@ router.get("/status", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 async function sendVerificationEmail(
   to: string,
