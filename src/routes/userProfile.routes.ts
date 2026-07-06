@@ -413,9 +413,6 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
   }
 });
 
-// =======================================================
-// ROTA: ENVIO E ATUALIZAÇÃO DE DOCUMENTOS (KYC) - HÍBRIDO
-// =======================================================
 userProfileRoutes.patch(
   "/me/documents",
   ensureAuthenticated,
@@ -424,19 +421,19 @@ userProfileRoutes.patch(
     { name: "documentBack", maxCount: 1 },
     { name: "addressProof", maxCount: 1 },
     { name: "selfieWithId", maxCount: 1 },
-    { name: "enrollmentProof", maxCount: 1 }, // <--- ADICIONADO PARA O IFMA
+    { name: "enrollmentProof", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      const { matricula } = req.body; // Vem junto com o form-data
+      const { matricula } = req.body; 
       const isIfmaMode = process.env.IFMA_MODE === "true";
 
       const docFrontFile = files?.documentFront?.[0];
       const docBackFile = files?.documentBack?.[0];
       const addressFile = files?.addressProof?.[0];
       const selfieFile = files?.selfieWithId?.[0];
-      const enrollmentFile = files?.enrollmentProof?.[0]; // <--- ADICIONADO
+      const enrollmentFile = files?.enrollmentProof?.[0];
 
       // Validações de envio dependendo do modo
       if (!docFrontFile || !docBackFile) {
@@ -444,8 +441,9 @@ userProfileRoutes.patch(
       }
 
       if (isIfmaMode) {
-        if (!enrollmentFile || !matricula) {
-          return res.status(400).json({ error: "O comprovante e o número de matrícula são obrigatórios." });
+        // 👇 Não exige mais a matrícula, pois o utilizador já a forneceu no registo!
+        if (!enrollmentFile) {
+          return res.status(400).json({ error: "O comprovante do SUAP é obrigatório." });
         }
       } else {
         if (!addressFile || !selfieFile) {
@@ -453,7 +451,6 @@ userProfileRoutes.patch(
         }
       }
 
-      // Busca os documentos atuais para deletar no Cloudinary caso sejam substituídos
       const currentUser = await prisma.user.findUnique({
         where: { id: req.user.id },
         select: {
@@ -470,7 +467,7 @@ userProfileRoutes.patch(
           const stream = cloudinary.uploader.upload_stream(
             {
               folder: "ludus/documents",
-              resource_type: "image", // ou 'auto' se o comprovante de matricula for PDF
+              resource_type: "auto", // 👇 MUDADO PARA AUTO (Essencial para aceitar PDFs além de Imagens)
               public_id: publicId,
               overwrite: true,
               transformation: [{ quality: "auto", fetch_format: "auto" }],
@@ -489,7 +486,8 @@ userProfileRoutes.patch(
         rejectReason: null, 
       };
 
-      if (isIfmaMode) {
+      // Se a app ainda assim enviar a matrícula por algum motivo, ele atualiza, senão ignora.
+      if (isIfmaMode && matricula) {
         updateData.matricula = String(matricula).trim();
       }
 
@@ -508,7 +506,6 @@ userProfileRoutes.patch(
         if (currentUser?.documentBackImage) oldFilesToDelete.push(currentUser.documentBackImage);
       }
       
-      // Salva apenas se vier (Modo Padrão)
       if (addressFile) {
         const result = await uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`);
         updateData.addressProof = result.secure_url;
@@ -521,7 +518,6 @@ userProfileRoutes.patch(
         if (currentUser?.selfieWithId) oldFilesToDelete.push(currentUser.selfieWithId);
       }
 
-      // Salva apenas se vier (Modo IFMA)
       if (enrollmentFile) {
         const result = await uploadToCloudinary(enrollmentFile.buffer, `enrollment-${req.user.id}-${Date.now()}`);
         updateData.enrollmentProof = result.secure_url;
