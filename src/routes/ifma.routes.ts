@@ -9,7 +9,7 @@ import { verifySuapCredentials } from "../services/suap.service";
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const IFMA_EMAIL_DOMAIN = "@ifma.edu.br";
+const IFMA_EMAIL_DOMAIN = "@acad.ifma.edu.br";
 
 function gen6() {
   return Math.floor(100000 + Math.random() * 900000).toString();
