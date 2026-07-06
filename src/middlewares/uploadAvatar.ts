@@ -8,10 +8,12 @@ export const uploadAvatar = multer({
     fileSize: 5 * 1024 * 1024, // 5MB
   },
   fileFilter: (_req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
+   
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg", "application/pdf"];
 
     if (!allowed.includes(file.mimetype)) {
-      return cb(new Error("Formato inválido. Envie JPG, PNG ou WEBP."));
+      // 👇 Mensagem de erro atualizada
+      return cb(new Error("Formato inválido. Envie JPG, PNG, WEBP ou PDF."));
     }
 
     cb(null, true);
