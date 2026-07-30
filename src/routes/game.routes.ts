@@ -192,7 +192,13 @@ gameRoutes.get("/", async (req, res) => {
   if (tier && String(tier).trim()) {
     const tierList = String(tier)
       .split(",")
-      .map((t) => t.trim().toUpperCase()) // 👈 Converte para MAIÚSCULO para bater com o Prisma Enum (EX: "PRATA")
+      .map((t) => 
+        t
+          .trim()
+          .normalize("NFD") // 👈 Separa os acentos das letras
+          .replace(/[\u0300-\u036f]/g, "") // 👈 Remove os acentos
+          .toUpperCase() // 👈 Converte para maiúsculo (Transforma "Latão" em "LATAO")
+      )
       .filter(Boolean); 
 
     if (tierList.length > 0) {
