@@ -146,6 +146,11 @@ export async function loginWithGoogle(idToken: string) {
     throw new Error("Email não fornecido pelo Google");
   }
 
+  
+  if (!email.endsWith("@ifma.edu.br") && !email.endsWith("@acad.ifma.edu.br")) {
+    throw new Error("Apenas e-mails institucionais do IFMA são permitidos.");
+  }
+
   const name = payload.name ?? "Usuário";
   const googleSub = payload.sub;
   const picture = payload.picture ?? null;
@@ -154,36 +159,33 @@ export async function loginWithGoogle(idToken: string) {
     where: { email },
   });
 
+
   if (!user) {
-    user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        picture,
-        emailVerified: true,
-        phone: null,
-        phoneVerified: false,
-        googleSub,
-        authProvider: "GOOGLE",
-        senhaHash: null,
-        points: 0,
-        level: 1,
-        termsAcceptedAt: new Date(),
-        privacyAcceptedAt: new Date(),
-        // Os campos de documentos vão receber os defaults do banco (PENDING, null, etc)
-      },
-    });
-  } else {
-    user = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        googleSub: user.googleSub ?? googleSub,
-        authProvider: "GOOGLE",
-        emailVerified: true,
-        picture: user.picture ?? picture,
-      },
-    });
+    return {
+      isNewUser: true,
+      needsCompletion: true,
+      user: { email, name }
+    };
   }
+
+ 
+  if (!user.matricula) {
+    return {
+      needsCompletion: true,
+      user: { email, name: user.name }
+    };
+  }
+
+ 
+  user = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      googleSub: user.googleSub ?? googleSub, 
+      authProvider: "GOOGLE",
+      emailVerified: true,
+      picture: user.picture ?? picture,
+    },
+  });
 
   const token = signUserToken(user.id, user.role);
 
