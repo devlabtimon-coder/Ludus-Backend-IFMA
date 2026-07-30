@@ -51,6 +51,8 @@ function buildUserResponse(user: {
   documentFrontImage?: string | null;
   documentBackImage?: string | null;
   addressProof?: string | null;
+  matricula?: string | null;
+  isAcademicVerified?: boolean | null;
 }) {
   return {
     id: user.id,
@@ -74,6 +76,9 @@ function buildUserResponse(user: {
     documentFrontImage: user.documentFrontImage,
     documentBackImage: user.documentBackImage,
     addressProof: user.addressProof,
+    
+    matricula: user.matricula || null,
+    isAcademicVerified: user.isAcademicVerified || false,
   };
 }
 
@@ -133,7 +138,8 @@ router.post("/google", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address } = req.body;
+  // 👇 Adicionado "matricula" no destructuring do body
+  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula } = req.body;
 
   try {
     const cleanName = (name || "").trim();
@@ -141,6 +147,11 @@ router.post("/register", async (req, res) => {
     const cleanPhone = phone ? cleanDigits(phone) : null;
     const cleanCpf = cleanDigits(cpf);
     const cleanAddress = (address || "").trim();
+    const cleanMatricula = (matricula || "").trim(); // 👇 Limpeza da matrícula
+
+    if (!cleanMatricula) { 
+      return res.status(400).json({ error: "Matrícula é obrigatória." });
+    }
 
     if (!cleanAddress) { 
       return res.status(400).json({ error: "Endereço é obrigatório." });
@@ -232,8 +243,9 @@ router.post("/register", async (req, res) => {
             senhaHash: hash,
             acceptedTerms,
             acceptedPrivacy,
-            cpf: cleanCpf,        // <--- ATUALIZA CPF AQUI
-            address: cleanAddress,// <--- ATUALIZA ENDEREÇO AQUI
+            cpf: cleanCpf,        
+            address: cleanAddress,
+            matricula: cleanMatricula, // 👇 ATUALIZA MATRÍCULA AQUI
             emailVerificationCode: emailCode,
             emailCodeExpiresAt: emailExpiresAt,
             lastEmailSentAt: new Date(),
@@ -280,8 +292,9 @@ router.post("/register", async (req, res) => {
         senhaHash: hash,
         acceptedTerms,
         acceptedPrivacy,
-        cpf: cleanCpf,     // <--- SALVA AQUI
+        cpf: cleanCpf,     
         address: cleanAddress,
+        matricula: cleanMatricula, // 👇 SALVA MATRÍCULA AQUI
         emailVerificationCode: emailCode,
         emailCodeExpiresAt: emailExpiresAt,
         lastEmailSentAt: new Date(),
@@ -382,8 +395,9 @@ router.post("/verify-email", async (req, res) => {
       senhaHash: pending.senhaHash,
       emailVerified: true,
       phoneVerified: false,
-      cpf: pending.cpf!,           // <--- TRANSFERE O CPF
-      address: pending.address!,   // <--- TRANSFERE O ENDEREÇO
+      cpf: pending.cpf!,           
+      address: pending.address!,   
+      matricula: pending.matricula!, // 👇 TRANSFERE A MATRÍCULA
       termsAcceptedAt: pending.acceptedTerms ? new Date() : null,
       privacyAcceptedAt: pending.acceptedPrivacy ? new Date() : null,
     },
@@ -522,8 +536,9 @@ router.post("/verify-phone", async (req, res) => {
           email: updatedPending.email,
           phone: updatedPending.phone,
           senhaHash: updatedPending.senhaHash,
-          cpf: updatedPending.cpf!,           // <--- ADICIONADO
-          address: updatedPending.address!,   // <--- ADICIONADO
+          cpf: updatedPending.cpf!,           
+          address: updatedPending.address!,   
+          matricula: updatedPending.matricula!, // 👇 TRANSFERE A MATRÍCULA
           emailVerified: true,
           phoneVerified: true,
         },
