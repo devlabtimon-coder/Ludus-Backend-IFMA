@@ -59,9 +59,9 @@ gameRoutes.get("/", async (req, res) => {
   const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
   const stars = Array.isArray(req.query.stars) ? req.query.stars[0] : req.query.stars;
   
-  // 👇 Novos parâmetros capturados da query string
-  const tier = Array.isArray(req.query.tier) ? req.query.tier[0] : req.query.tier;
-  const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics[0] : req.query.mechanics;
+
+  const tier = Array.isArray(req.query.tier) ? req.query.tier.join(",") : req.query.tier;
+  const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics.join(",") : req.query.mechanics;
 
   let isAdmin = false;
   const authHeader = req.headers.authorization;
