@@ -51,66 +51,53 @@ gameRoutes.get(
 
 gameRoutes.get("/", async (req, res) => {
   const q = Array.isArray(req.query.q) ? req.query.q[0] : req.query.q;
-  const status = Array.isArray(req.query.status)
-    ? req.query.status[0]
-    : req.query.status;
-  const players = Array.isArray(req.query.players)
-    ? req.query.players[0]
-    : req.query.players;
+  const status = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
+  const players = Array.isArray(req.query.players) ? req.query.players[0] : req.query.players;
   const age = Array.isArray(req.query.age) ? req.query.age[0] : req.query.age;
-  const priceMin = Array.isArray(req.query.priceMin)
-    ? req.query.priceMin[0]
-    : req.query.priceMin;
-  const priceMax = Array.isArray(req.query.priceMax)
-    ? req.query.priceMax[0]
-    : req.query.priceMax;
-  const timeMax = Array.isArray(req.query.timeMax)
-    ? req.query.timeMax[0]
-    : req.query.timeMax;
-  const stars = Array.isArray(req.query.stars)
-    ? req.query.stars[0]
-    : req.query.stars;
+  const priceMin = Array.isArray(req.query.priceMin) ? req.query.priceMin[0] : req.query.priceMin;
+  const priceMax = Array.isArray(req.query.priceMax) ? req.query.priceMax[0] : req.query.priceMax;
+  const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
+  const stars = Array.isArray(req.query.stars) ? req.query.stars[0] : req.query.stars;
+  
+  // 👇 Novos parâmetros capturados da query string
+  const tier = Array.isArray(req.query.tier) ? req.query.tier[0] : req.query.tier;
+  const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics[0] : req.query.mechanics;
 
+  let isAdmin = false;
+  const authHeader = req.headers.authorization;
 
- let isAdmin = false;
-const authHeader = req.headers.authorization;
-
-// O backend dá uma "espiada" para ver se tem um token na requisição
-if (authHeader) {
-  const parts = authHeader.split(" ");
-  if (parts.length === 2) {
-    const token = parts[1];
-    try {
-      // Tenta ler o token (usando o seu JWT_SECRET)
-      const decoded = verify(token, process.env.JWT_SECRET as string) as any;
-      
-      // Se for válido, busca rapidinho a role do usuário no banco
-      if (decoded.sub) {
-        const userCheck = await prisma.user.findUnique({
-          where: { id: decoded.sub },
-          select: { role: true }
-        });
-        if (userCheck?.role === "ADMIN") {
-          isAdmin = true; // É o ADMIN! Liberar tudo!
+  // O backend dá uma "espiada" para ver se tem um token na requisição
+  if (authHeader) {
+    const parts = authHeader.split(" ");
+    if (parts.length === 2) {
+      const token = parts[1];
+      try {
+        const decoded = verify(token, process.env.JWT_SECRET as string) as any;
+        
+        if (decoded.sub) {
+          const userCheck = await prisma.user.findUnique({
+            where: { id: decoded.sub },
+            select: { role: true }
+          });
+          if (userCheck?.role === "ADMIN") {
+            isAdmin = true;
+          }
         }
+      } catch (e) {
+        // Ignora erro de token
       }
-    } catch (e) {
-      // Se der erro (token expirado ou sem token), ignora e segue como usuário comum
     }
   }
-}
 
-const where: any = {};
+  const where: any = {};
 
-// Se NÃO for admin, esconde os inativos. Se for, mostra tudo!
-if (!isAdmin) {
-  where.isVisible = true;
-  where.isActive = true;
-}
+  if (!isAdmin) {
+    where.isVisible = true;
+    where.isActive = true;
+  }
 
   if (q && String(q).trim()) {
     const term = String(q).trim();
-
     where.OR = [
       { title: { contains: term, mode: "insensitive" } },
       { description: { contains: term, mode: "insensitive" } },
@@ -119,7 +106,6 @@ if (!isAdmin) {
 
   if (status && String(status) !== "ALL") {
     const st = String(status);
-
     if (st === "AVAILABLE") {
       const availableCondition = {
         OR: [
@@ -127,14 +113,11 @@ if (!isAdmin) {
           {
             AND: [
               { available: true },
-              {
-                OR: [{ allowOriginalRental: true }, { copies: { none: {} } }],
-              },
+              { OR: [{ allowOriginalRental: true }, { copies: { none: {} } }] },
             ],
           },
         ],
       };
-
       if (where.OR) {
         where.AND = [...(where.AND ?? []), availableCondition];
       } else {
@@ -144,12 +127,9 @@ if (!isAdmin) {
       const unavailableCondition = {
         AND: [
           { copies: { none: { available: true } } },
-          {
-            OR: [{ available: false }, { allowOriginalRental: false }],
-          },
+          { OR: [{ available: false }, { allowOriginalRental: false }] },
         ],
       };
-
       if (where.OR) {
         where.AND = [...(where.AND ?? []), unavailableCondition];
       } else {
@@ -201,12 +181,35 @@ if (!isAdmin) {
           return { rating: { gte: min, lte: max } };
         }),
       };
-
       if (where.OR) {
         where.AND = [...(where.AND ?? []), starsOr];
       } else {
         Object.assign(where, starsOr);
       }
+    }
+  }
+
+  // 👇 FILTRO DE TIER
+  if (tier && String(tier).trim()) {
+    const tierList = String(tier)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean); // Remove vazios
+
+    if (tierList.length > 0) {
+      where.tier = { in: tierList };
+    }
+  }
+
+  // 👇 FILTRO DE MECÂNICAS (Usa hasSome para achar jogos que tenham pelo menos uma das mecânicas pedidas)
+  if (mechanics && String(mechanics).trim()) {
+    const mechanicsList = String(mechanics)
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean); // Remove vazios
+
+    if (mechanicsList.length > 0) {
+      where.mechanics = { hasSome: mechanicsList };
     }
   }
 
@@ -222,9 +225,7 @@ if (!isAdmin) {
 
     const mapped = games.map((g) => {
       const copiesCount = g._count?.copies ?? 0;
-      const availableCopiesCount = (g.copies ?? []).filter(
-        (c) => c.available
-      ).length;
+      const availableCopiesCount = (g.copies ?? []).filter((c) => c.available).length;
 
       const isAvailableNow =
         availableCopiesCount > 0 ||
