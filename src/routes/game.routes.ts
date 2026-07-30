@@ -59,7 +59,6 @@ gameRoutes.get("/", async (req, res) => {
   const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
   const stars = Array.isArray(req.query.stars) ? req.query.stars[0] : req.query.stars;
   
-
   const tier = Array.isArray(req.query.tier) ? req.query.tier.join(",") : req.query.tier;
   const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics.join(",") : req.query.mechanics;
 
@@ -189,24 +188,24 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
-  // 👇 FILTRO DE TIER
+  // 👇 FILTRO DE TIER CORRIGIDO
   if (tier && String(tier).trim()) {
     const tierList = String(tier)
       .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean); // Remove vazios
+      .map((t) => t.trim().toUpperCase()) // 👈 Converte para MAIÚSCULO para bater com o Prisma Enum (EX: "PRATA")
+      .filter(Boolean); 
 
     if (tierList.length > 0) {
       where.tier = { in: tierList };
     }
   }
 
-  // 👇 FILTRO DE MECÂNICAS (Usa hasSome para achar jogos que tenham pelo menos uma das mecânicas pedidas)
+  // 👇 FILTRO DE MECÂNICAS
   if (mechanics && String(mechanics).trim()) {
     const mechanicsList = String(mechanics)
       .split(",")
       .map((m) => m.trim())
-      .filter(Boolean); // Remove vazios
+      .filter(Boolean); 
 
     if (mechanicsList.length > 0) {
       where.mechanics = { hasSome: mechanicsList };
@@ -293,7 +292,6 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       });
     }
 
-    // 👇 BUSCA OS DETALHES DA LUDOPEDIA (AGORA INCLUI AS MECÂNICAS)
     const details = await getLudopediaGameDetails(parsedLudopediaId);
 
     let finalDescription =
@@ -351,7 +349,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         ludopediaId: parsedLudopediaId,
         title: cleanTitle,
         cover,
-        price: 0, // 👈 TRAVEI O PREÇO EM ZERO PARA O FLUXO DO IFMA
+        price: 0,
         available: true,
         isActive: true,
         isVisible: true,
@@ -909,9 +907,6 @@ gameRoutes.get("/:id/can-rate", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// =================================================================
-// Rota para Refazer a Tradução/Sincronização da Descrição
-// =================================================================
 gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     const id = requireSingleParam(req.params.id, "id");
@@ -923,7 +918,6 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
 
     console.log(`[SYNC-DESC] Refazendo busca de tradução para: ${game.title}`);
 
-    // 1. Tenta buscar na BGG primeiro
     const searchResult = await searchBGG(game.title);
     if (searchResult) {
       const bggDetails = await getBGGDetails(searchResult.id);
@@ -936,7 +930,6 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
       }
     }
 
-    // 2. Se falhar a BGG ou a tradução, faz o fallback pra Ludopedia
     if (game.ludopediaId) {
       const ludoDetails = await getLudopediaGameDetails(game.ludopediaId);
       if (ludoDetails?.description?.trim()) {
@@ -944,7 +937,6 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
       }
     }
 
-    // Se realmente não achar em lugar nenhum
     return res.json({ description: "" });
     
   } catch (error) {
