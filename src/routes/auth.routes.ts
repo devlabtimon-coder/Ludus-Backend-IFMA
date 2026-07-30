@@ -44,8 +44,6 @@ function buildUserResponse(user: {
   authProvider: string;
   avatar: string | null;
   picture: string | null;
-  
-  // ADICIONADOS ESTES CAMPOS NA TIPAGEM
   registrationStatus?: string | null;
   rejectReason?: string | null;
   documentFrontImage?: string | null;
@@ -70,13 +68,11 @@ function buildUserResponse(user: {
     authProvider: user.authProvider,
     avatar: user.avatar,
     picture: user.picture,
-
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
     documentFrontImage: user.documentFrontImage,
     documentBackImage: user.documentBackImage,
     addressProof: user.addressProof,
-    
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };
@@ -138,8 +134,8 @@ router.post("/google", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  // 👇 Adicionado "matricula" no destructuring do body
-  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula } = req.body;
+  // 👇 Adicionado "isGoogle" no destructuring do body
+  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula, isGoogle } = req.body;
 
   try {
     const cleanName = (name || "").trim();
@@ -147,7 +143,7 @@ router.post("/register", async (req, res) => {
     const cleanPhone = phone ? cleanDigits(phone) : null;
     const cleanCpf = cleanDigits(cpf);
     const cleanAddress = (address || "").trim();
-    const cleanMatricula = (matricula || "").trim(); // 👇 Limpeza da matrícula
+    const cleanMatricula = (matricula || "").trim();
 
     if (!cleanMatricula) { 
       return res.status(400).json({ error: "Matrícula é obrigatória." });
@@ -169,7 +165,8 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
-    if (!senha) {
+    // Se NÃO for Google, a senha é obrigatória
+    if (!senha && !isGoogle) {
       return res.status(400).json({ error: "Senha é obrigatória." });
     }
 
@@ -178,6 +175,71 @@ router.post("/register", async (req, res) => {
         error: "Você precisa aceitar os Termos de Uso e a Política de Privacidade.",
       });
     }
+
+    // ==========================================
+    // 👇 NOVO FLUXO VIP PARA QUEM VEM DO GOOGLE
+    // ==========================================
+    if (isGoogle) {
+      if (cleanPhone) {
+        const phoneExists = await prisma.user.findFirst({
+          where: { phone: cleanPhone, email: { not: cleanEmail } },
+        });
+        if (phoneExists) {
+          return res.status(400).json({ error: "Telefone já cadastrado." });
+        }
+      }
+
+      let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      const hash = senha ? await bcrypt.hash(senha, 10) : null;
+
+      if (user) {
+        // Se o usuário já existe (login parcial no passado), apenas atualiza
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            name: cleanName,
+            cpf: cleanCpf,
+            address: cleanAddress,
+            matricula: cleanMatricula,
+            phone: cleanPhone,
+            senhaHash: user.senhaHash || hash, // Mantém a antiga se não enviar nova
+            emailVerified: true,
+            authProvider: "GOOGLE",
+            termsAcceptedAt: user.termsAcceptedAt || (acceptedTerms ? new Date() : null),
+            privacyAcceptedAt: user.privacyAcceptedAt || (acceptedPrivacy ? new Date() : null),
+          }
+        });
+      } else {
+        // Cria o usuário novo direto na tabela final
+        user = await prisma.user.create({
+          data: {
+            name: cleanName,
+            email: cleanEmail,
+            phone: cleanPhone,
+            senhaHash: hash,
+            cpf: cleanCpf,
+            address: cleanAddress,
+            matricula: cleanMatricula,
+            authProvider: "GOOGLE",
+            emailVerified: true, // Já entra validado!
+            phoneVerified: false,
+            termsAcceptedAt: acceptedTerms ? new Date() : null,
+            privacyAcceptedAt: acceptedPrivacy ? new Date() : null,
+          }
+        });
+      }
+
+      const token = signUserToken(user.id, user.role);
+
+      return res.status(201).json({
+        message: "Cadastro concluído com sucesso via Google!",
+        token,
+        user: buildUserResponse(user),
+      });
+    }
+    // ==========================================
+    // FIM DO FLUXO DO GOOGLE
+    // ==========================================
 
     // limpa pendências antigas
     await prisma.pendingRegistration.deleteMany({
@@ -245,7 +307,7 @@ router.post("/register", async (req, res) => {
             acceptedPrivacy,
             cpf: cleanCpf,        
             address: cleanAddress,
-            matricula: cleanMatricula, // 👇 ATUALIZA MATRÍCULA AQUI
+            matricula: cleanMatricula,
             emailVerificationCode: emailCode,
             emailCodeExpiresAt: emailExpiresAt,
             lastEmailSentAt: new Date(),
@@ -294,7 +356,7 @@ router.post("/register", async (req, res) => {
         acceptedPrivacy,
         cpf: cleanCpf,     
         address: cleanAddress,
-        matricula: cleanMatricula, // 👇 SALVA MATRÍCULA AQUI
+        matricula: cleanMatricula,
         emailVerificationCode: emailCode,
         emailCodeExpiresAt: emailExpiresAt,
         lastEmailSentAt: new Date(),
@@ -397,7 +459,7 @@ router.post("/verify-email", async (req, res) => {
       phoneVerified: false,
       cpf: pending.cpf!,           
       address: pending.address!,   
-      matricula: pending.matricula!, // 👇 TRANSFERE A MATRÍCULA
+      matricula: pending.matricula!,
       termsAcceptedAt: pending.acceptedTerms ? new Date() : null,
       privacyAcceptedAt: pending.acceptedPrivacy ? new Date() : null,
     },
@@ -538,7 +600,7 @@ router.post("/verify-phone", async (req, res) => {
           senhaHash: updatedPending.senhaHash,
           cpf: updatedPending.cpf!,           
           address: updatedPending.address!,   
-          matricula: updatedPending.matricula!, // 👇 TRANSFERE A MATRÍCULA
+          matricula: updatedPending.matricula!,
           emailVerified: true,
           phoneVerified: true,
         },

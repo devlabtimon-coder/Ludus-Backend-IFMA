@@ -21,7 +21,7 @@ type AuthUserResponse = {
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
-  // 👇 Novos campos IFMA adicionados
+
   isAcademicVerified: boolean;
   matricula: string | null;
 };
@@ -43,7 +43,7 @@ function buildUserResponse(user: {
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
-  // 👇 Tipagem para aceitar os campos opcionais do IFMA
+
   isAcademicVerified?: boolean | null;
   matricula?: string | null;
 }): AuthUserResponse {
@@ -65,7 +65,6 @@ function buildUserResponse(user: {
     rejectReason: user.rejectReason,
     documentFrontImage: user.documentFrontImage,
     addressProof: user.addressProof,
-    // 👇 Repassando os valores do banco para o App
     isAcademicVerified: user.isAcademicVerified || false,
     matricula: user.matricula || null,
   };
@@ -146,7 +145,6 @@ export async function loginWithGoogle(idToken: string) {
     throw new Error("Email não fornecido pelo Google");
   }
 
-  
   if (!email.endsWith("@ifma.edu.br") && !email.endsWith("@acad.ifma.edu.br")) {
     throw new Error("Apenas e-mails institucionais do IFMA são permitidos.");
   }
@@ -168,24 +166,24 @@ export async function loginWithGoogle(idToken: string) {
     };
   }
 
- 
+
+  user = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      googleSub: user.googleSub ?? googleSub, 
+      authProvider: "GOOGLE",
+      emailVerified: true, // Google confirmou, o banco obedece!
+      picture: user.picture ?? picture,
+    },
+  });
+
+  
   if (!user.matricula) {
     return {
       needsCompletion: true,
       user: { email, name: user.name }
     };
   }
-
- 
-  user = await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      googleSub: user.googleSub ?? googleSub, 
-      authProvider: "GOOGLE",
-      emailVerified: true,
-      picture: user.picture ?? picture,
-    },
-  });
 
   const token = signUserToken(user.id, user.role);
 
