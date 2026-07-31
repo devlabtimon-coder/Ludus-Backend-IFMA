@@ -148,8 +148,11 @@ gameRoutes.get("/", async (req, res) => {
 
   if (timeMax && String(timeMax) !== "null") {
     const time = Number(timeMax);
-    if (!Number.isNaN(time)) {
-      where.maxTime = { lte: time };
+    
+    
+    if (!Number.isNaN(time) && time !== 999) {
+      
+      where.maxTime = time; 
     }
   }
 
