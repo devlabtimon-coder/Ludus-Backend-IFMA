@@ -206,8 +206,8 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
-  // 👇 FILTRO DE MECÂNICAS
-  if (mechanics && String(mechanics).trim()) {
+  
+ if (mechanics && String(mechanics).trim()) {
     const mechanicsList = String(mechanics)
       .split(",")
       .map((m) => m.trim())
@@ -216,8 +216,13 @@ gameRoutes.get("/", async (req, res) => {
     if (mechanicsList.length > 0) {
       where.mechanics = { hasSome: mechanicsList };
     }
-  }
 
+    
+    console.log("=== DEBUG FILTRO DE MECÂNICAS ===");
+    console.log("O que chegou na query (mechanics):", mechanics);
+    console.log("Lista processada (mechanicsList):", mechanicsList);
+    console.log("Objeto 'where' enviado ao Prisma:", JSON.stringify(where, null, 2));
+  }
   try {
     const games = await prisma.game.findMany({
       where,
