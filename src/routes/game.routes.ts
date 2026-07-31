@@ -57,7 +57,9 @@ gameRoutes.get("/", async (req, res) => {
   const priceMin = Array.isArray(req.query.priceMin) ? req.query.priceMin[0] : req.query.priceMin;
   const priceMax = Array.isArray(req.query.priceMax) ? req.query.priceMax[0] : req.query.priceMax;
   const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
-  const stars = Array.isArray(req.query.stars) ? req.query.stars[0] : req.query.stars;
+  
+ 
+  const sortParam = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort;
   
   const tier = Array.isArray(req.query.tier) ? req.query.tier.join(",") : req.query.tier;
   const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics.join(",") : req.query.mechanics;
@@ -65,7 +67,7 @@ gameRoutes.get("/", async (req, res) => {
   let isAdmin = false;
   const authHeader = req.headers.authorization;
 
-  // O backend dá uma "espiada" para ver se tem um token na requisição
+
   if (authHeader) {
     const parts = authHeader.split(" ");
     if (parts.length === 2) {
@@ -83,7 +85,7 @@ gameRoutes.get("/", async (req, res) => {
           }
         }
       } catch (e) {
-        // Ignora erro de token
+       
       }
     }
   }
@@ -166,29 +168,6 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
-  if (stars && String(stars).trim()) {
-    const list = String(stars)
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => [1, 2, 3, 4, 5].includes(n));
-
-    if (list.length) {
-      const starsOr = {
-        OR: list.map((n) => {
-          const min = n - 0.5;
-          const max = n === 5 ? 5 : n + 0.5 - 0.0001;
-          return { rating: { gte: min, lte: max } };
-        }),
-      };
-      if (where.OR) {
-        where.AND = [...(where.AND ?? []), starsOr];
-      } else {
-        Object.assign(where, starsOr);
-      }
-    }
-  }
-
-  
   if (tier && String(tier).trim()) {
     const tierList = String(tier)
       .split(",")
@@ -206,7 +185,6 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
-  
  if (mechanics && String(mechanics).trim()) {
     const mechanicsList = String(mechanics)
       .split(",")
@@ -216,17 +194,22 @@ gameRoutes.get("/", async (req, res) => {
     if (mechanicsList.length > 0) {
       where.mechanics = { hasSome: mechanicsList };
     }
-
-    
-    console.log("=== DEBUG FILTRO DE MECÂNICAS ===");
-    console.log("O que chegou na query (mechanics):", mechanics);
-    console.log("Lista processada (mechanicsList):", mechanicsList);
-    console.log("Objeto 'where' enviado ao Prisma:", JSON.stringify(where, null, 2));
   }
+
+
+  let orderByCondition: any = { title: "asc" }; 
+
+  if (sortParam === "Z-A") {
+    orderByCondition = { title: "desc" };
+  } else if (sortParam === "TOP_RATED") {
+    
+    orderByCondition = [{ rating: "desc" }, { ratingsCount: "desc" }, { title: "asc" }];
+  }
+
   try {
     const games = await prisma.game.findMany({
       where,
-      orderBy: { title: "asc" },
+      orderBy: orderByCondition, 
       include: {
         _count: { select: { copies: true } },
         copies: { select: { available: true } },
