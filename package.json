@@ -24,6 +24,7 @@
     "dotenv": "^17.2.3",
     "expo-server-sdk": "^6.0.0",
     "express": "^5.2.1",
+    "firebase-admin": "^14.2.0",
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.3",
     "jwt-decode": "^4.0.0",

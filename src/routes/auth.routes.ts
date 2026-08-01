@@ -1,18 +1,13 @@
 import jwt from "jsonwebtoken";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import twilio from "twilio";
 import { Resend } from "resend";
+import { getAuth } from "firebase-admin/auth";
 
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle } from "../services/auth.service";
 
 const router = Router();
-
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -134,7 +129,6 @@ router.post("/google", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  // 👇 Adicionado "isGoogle" no destructuring do body
   const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula, isGoogle } = req.body;
 
   try {
@@ -165,7 +159,6 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
-    // Se NÃO for Google, a senha é obrigatória
     if (!senha && !isGoogle) {
       return res.status(400).json({ error: "Senha é obrigatória." });
     }
@@ -176,9 +169,6 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // ==========================================
-    // 👇 NOVO FLUXO VIP PARA QUEM VEM DO GOOGLE
-    // ==========================================
     if (isGoogle) {
       if (cleanPhone) {
         const phoneExists = await prisma.user.findFirst({
@@ -193,7 +183,6 @@ router.post("/register", async (req, res) => {
       const hash = senha ? await bcrypt.hash(senha, 10) : null;
 
       if (user) {
-        // Se o usuário já existe (login parcial no passado), apenas atualiza
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
@@ -202,7 +191,7 @@ router.post("/register", async (req, res) => {
             address: cleanAddress,
             matricula: cleanMatricula,
             phone: cleanPhone,
-            senhaHash: user.senhaHash || hash, // Mantém a antiga se não enviar nova
+            senhaHash: user.senhaHash || hash, 
             emailVerified: true,
             authProvider: "GOOGLE",
             termsAcceptedAt: user.termsAcceptedAt || (acceptedTerms ? new Date() : null),
@@ -210,7 +199,6 @@ router.post("/register", async (req, res) => {
           }
         });
       } else {
-        // Cria o usuário novo direto na tabela final
         user = await prisma.user.create({
           data: {
             name: cleanName,
@@ -221,7 +209,7 @@ router.post("/register", async (req, res) => {
             address: cleanAddress,
             matricula: cleanMatricula,
             authProvider: "GOOGLE",
-            emailVerified: true, // Já entra validado!
+            emailVerified: true, 
             phoneVerified: false,
             termsAcceptedAt: acceptedTerms ? new Date() : null,
             privacyAcceptedAt: acceptedPrivacy ? new Date() : null,
@@ -237,11 +225,7 @@ router.post("/register", async (req, res) => {
         user: buildUserResponse(user),
       });
     }
-    // ==========================================
-    // FIM DO FLUXO DO GOOGLE
-    // ==========================================
 
-    // limpa pendências antigas
     await prisma.pendingRegistration.deleteMany({
       where: {
         createdAt: {
@@ -250,7 +234,6 @@ router.post("/register", async (req, res) => {
       },
     });
 
-    // usuário real já existe?
     const emailExists = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
@@ -552,221 +535,98 @@ router.post("/resend-email-code", async (req, res) => {
   return res.json({ message: "Novo código enviado por e-mail!" });
 });
 
+
+
 router.post("/verify-phone", async (req, res) => {
-  const { phone, code } = req.body;
+  const { idToken } = req.body;
 
-  const cleanPhone = cleanDigits(phone);
-  const cleanCode = cleanDigits(code);
-
-  if (!cleanPhone) {
-    return res.status(400).json({ error: "Telefone é obrigatório." });
+  if (!idToken) {
+    return res.status(400).json({ error: "Token de verificação ausente." });
   }
 
-  if (!cleanCode || cleanCode.length !== 6) {
-    return res.status(400).json({ error: "Código inválido." });
-  }
+  try {
+   
+    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const firebasePhone = decodedToken.phone_number;
 
-
-  const pending = await prisma.pendingRegistration.findFirst({
-    where: {
-      phone: cleanPhone,
-      phoneVerificationCode: cleanCode,
-    },
-  });
-
-  if (pending) {
-    if (
-      pending.phoneCodeExpiresAt &&
-      pending.phoneCodeExpiresAt.getTime() < Date.now()
-    ) {
-      return res.status(400).json({ error: "Código expirado." });
+    if (!firebasePhone) {
+      return res.status(400).json({ error: "Token não contém um número de telefone." });
     }
 
-    const updatedPending = await prisma.pendingRegistration.update({
-      where: { id: pending.id },
-      data: {
-        phoneVerified: true,
-        phoneVerificationCode: null,
-        phoneCodeExpiresAt: null,
-      },
+
+    const cleanPhone = firebasePhone.replace("+55", "").replace(/\D/g, "");
+
+    
+    const pending = await prisma.pendingRegistration.findFirst({
+      where: { phone: cleanPhone },
     });
 
-    if (updatedPending.emailVerified) {
-      const createdUser = await prisma.user.create({
-        data: {
-          name: updatedPending.name,
-          email: updatedPending.email,
-          phone: updatedPending.phone,
-          senhaHash: updatedPending.senhaHash,
-          cpf: updatedPending.cpf!,           
-          address: updatedPending.address!,   
-          matricula: updatedPending.matricula!,
-          emailVerified: true,
-          phoneVerified: true,
-        },
+    if (pending) {
+      const updatedPending = await prisma.pendingRegistration.update({
+        where: { id: pending.id },
+        data: { phoneVerified: true },
       });
 
-      await prisma.pendingRegistration.delete({
-        where: { id: updatedPending.id },
-      });
 
-      const token = signUserToken(createdUser.id, createdUser.role);
+      if (updatedPending.emailVerified) {
+        const createdUser = await prisma.user.create({
+          data: {
+            name: updatedPending.name,
+            email: updatedPending.email,
+            phone: updatedPending.phone,
+            senhaHash: updatedPending.senhaHash,
+            cpf: updatedPending.cpf!,           
+            address: updatedPending.address!,   
+            matricula: updatedPending.matricula!,
+            emailVerified: true,
+            phoneVerified: true,
+          },
+        });
+
+        await prisma.pendingRegistration.delete({ where: { id: updatedPending.id } });
+        const token = signUserToken(createdUser.id, createdUser.role);
+
+        return res.json({
+          message: "Telefone verificado com sucesso!",
+          token,
+          user: buildUserResponse(createdUser),
+        });
+      }
 
       return res.json({
         message: "Telefone verificado com sucesso!",
-        token,
-        user: buildUserResponse(createdUser),
+        pending: true,
+        emailVerified: updatedPending.emailVerified,
+        phoneVerified: true,
       });
     }
 
+  
+    const user = await prisma.user.findFirst({
+      where: { phone: cleanPhone },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "Nenhum cadastro encontrado com este número." });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { phoneVerified: true },
+    });
+
+    const token = signUserToken(updatedUser.id, updatedUser.role);
 
     return res.json({
       message: "Telefone verificado com sucesso!",
-      pending: true,
-      emailVerified: updatedPending.emailVerified,
-      phoneVerified: true,
-    });
-  }
-
-  
-  const user = await prisma.user.findFirst({
-    where: {
-      phone: cleanPhone,
-      verificationCode: cleanCode,
-    },
-  });
-
-  if (!user) {
-    return res.status(400).json({ error: "Código inválido ou expirado." });
-  }
-
-  if (user.codeExpiresAt && user.codeExpiresAt.getTime() < Date.now()) {
-    return res.status(400).json({ error: "Código expirado." });
-  }
-
-  const updatedUser = await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      phoneVerified: true,
-      verificationCode: null,
-      codeExpiresAt: null,
-    },
-  });
-
-  const token = signUserToken(updatedUser.id, updatedUser.role);
-
-  return res.json({
-    message: "Telefone verificado com sucesso!",
-    token,
-    user: buildUserResponse(updatedUser),
-  });
-});
-
-router.post("/resend-code", async (req, res) => {
-  const { phone } = req.body;
-  const cleanPhone = cleanDigits(phone);
-
-  if (!cleanPhone) {
-    return res.status(400).json({ error: "Telefone é obrigatório." });
-  }
-
-  const pending = await prisma.pendingRegistration.findUnique({
-    where: { phone: cleanPhone },
-  });
-
-  if (pending) {
-    if (pending.lastPhoneSentAt) {
-      const elapsed = Date.now() - pending.lastPhoneSentAt.getTime();
-      const waitMs = 30_000 - elapsed;
-
-      if (waitMs > 0) {
-        const retryAfterSec = Math.ceil(waitMs / 1000);
-        return res.status(429).json({
-          error: `Aguarde ${retryAfterSec} segundos antes de reenviar.`,
-          code: "WAIT_BEFORE_RESEND",
-          retryAfter: retryAfterSec,
-        });
-      }
-    }
-
-    const newCode = gen6();
-    const now = new Date();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await prisma.pendingRegistration.update({
-      where: { id: pending.id },
-      data: {
-        phoneVerificationCode: newCode,
-        phoneCodeExpiresAt: expiresAt,
-        lastPhoneSentAt: now,
-      },
+      token,
+      user: buildUserResponse(updatedUser),
     });
 
-    try {
-      await client.messages.create({
-        body: `Seu código de verificação Ludus é: ${newCode}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: `+55${cleanPhone}`,
-      });
-    } catch (e) {
-      return res.status(400).json({
-        error: "SMS indisponível no momento. Use verificação por e-mail.",
-        code: "SMS_UNAVAILABLE",
-      });
-    }
-
-    return res.json({ message: "Novo código enviado por SMS!" });
+  } catch (err: any) {
+    console.error("ERRO /verify-phone Firebase:", err);
+    return res.status(401).json({ error: "Sessão de verificação inválida ou expirada." });
   }
-
-  const user = await prisma.user.findUnique({
-    where: { phone: cleanPhone },
-  });
-
-  if (!user) {
-    return res.status(404).json({ error: "Usuário não encontrado." });
-  }
-
-  if (user.lastCodeSentAt) {
-    const elapsed = Date.now() - user.lastCodeSentAt.getTime();
-    const waitMs = 30_000 - elapsed;
-
-    if (waitMs > 0) {
-      const retryAfterSec = Math.ceil(waitMs / 1000);
-      return res.status(429).json({
-        error: `Aguarde ${retryAfterSec} segundos antes de reenviar.`,
-        code: "WAIT_BEFORE_RESEND",
-        retryAfter: retryAfterSec,
-      });
-    }
-  }
-
-  const newCode = gen6();
-  const now = new Date();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      verificationCode: newCode,
-      codeExpiresAt: expiresAt,
-      lastCodeSentAt: now,
-    },
-  });
-
-  try {
-    await client.messages.create({
-      body: `Seu código de verificação Ludus é: ${newCode}`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: `+55${cleanPhone}`,
-    });
-  } catch (e) {
-    return res.status(400).json({
-      error: "SMS indisponível no momento. Use verificação por e-mail.",
-      code: "SMS_UNAVAILABLE",
-    });
-  }
-
-  return res.json({ message: "Novo código enviado por SMS!" });
 });
 
 

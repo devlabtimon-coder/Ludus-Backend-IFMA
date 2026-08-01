@@ -2,6 +2,9 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import path from "path";
+import * as admin from "firebase-admin";
+import { applicationDefault } from "firebase-admin/app"; 
+
 import { prisma } from './lib/prisma';
 import authRoutes from "./routes/auth.routes";
 import { gameRoutes } from "./routes/game.routes";
@@ -19,6 +22,11 @@ import { categoryRoutes } from "./routes/category.routes";
 import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
+
+
+admin.initializeApp({
+  credential: applicationDefault(),
+});
 
 const app = express();
 
