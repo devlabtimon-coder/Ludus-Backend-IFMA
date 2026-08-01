@@ -134,11 +134,69 @@ export async function setClientCategoryAdmin(
   userId: string,
   newCategory: ClientCategory
 ): Promise<{ clientCategory: ClientCategory }> {
+  
+  const oldUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { clientCategory: true },
+  });
+
+  if (!oldUser) {
+    throw new Error("Usuário não encontrado");
+  }
+
+ 
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { clientCategory: newCategory },
+    data: { 
+      clientCategory: newCategory,
+      totalRentalsCount: 0 
+    },
     select: { id: true, clientCategory: true },
   });
+
+  
+  const oldCategoryIdx = CATEGORY_ORDER.indexOf(oldUser.clientCategory);
+  const newCategoryIdx = CATEGORY_ORDER.indexOf(newCategory);
+
+  if (oldCategoryIdx !== newCategoryIdx) {
+    const isUpgrade = newCategoryIdx > oldCategoryIdx;
+    const categoryLabel = CLIENT_CATEGORY_LABELS[newCategory];
+
+    const title = isUpgrade ? "Categoria atualizada! 🎉" : "Ajuste de Categoria ⚠️";
+    const body = isUpgrade
+      ? `A administração concedeu um bônus! Agora você é ${categoryLabel} e tem novos jogos liberados.`
+      : `Sua categoria foi ajustada para ${categoryLabel} e sua contagem de aluguéis foi reiniciada.`;
+    
+    
+    const notificationType = isUpgrade 
+      ? NotificationType.LEVEL_UP 
+      : NotificationType.SYSTEM_ANNOUNCEMENT;
+
+    try {
+      await notifyUser({
+        userId,
+        type: notificationType,
+        title,
+        body,
+        channelId: "system",
+        data: {
+          route: "/profile",
+          clientCategory: newCategory,
+          categoryLabel,
+        },
+      });
+
+      await sendPushToUser({
+        userId,
+        title,
+        body,
+        channelId: "system",
+        data: { route: "/profile" },
+      });
+    } catch (e) {
+      console.error("Falha ao notificar mudança manual de categoria:", e);
+    }
+  }
 
   return { clientCategory: user.clientCategory };
 }
