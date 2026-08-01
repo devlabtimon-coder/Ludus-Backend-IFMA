@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import * as admin from "firebase-admin";
-import { applicationDefault } from "firebase-admin/app"; 
+import { cert } from "firebase-admin/app";
 
 import { prisma } from './lib/prisma';
 import authRoutes from "./routes/auth.routes";
@@ -23,10 +23,19 @@ import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
 
+const credentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
-admin.initializeApp({
-  credential: applicationDefault(),
-});
+if (!credentialsBase64) {
+  console.error("❌ ERRO: A variável FIREBASE_CREDENTIALS_BASE64 não está configurada!");
+} else {
+  const serviceAccountJson = Buffer.from(credentialsBase64, "base64").toString("utf-8");
+  const serviceAccount = JSON.parse(serviceAccountJson);
+
+  admin.initializeApp({
+    credential: cert(serviceAccount),
+  });
+  console.log("🔥 Firebase Admin inicializado com sucesso via Variável de Ambiente!");
+}
 
 const app = express();
 
