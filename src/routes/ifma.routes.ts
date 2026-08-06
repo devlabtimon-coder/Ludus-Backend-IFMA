@@ -1,6 +1,6 @@
-
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken"; 
 import { Resend } from "resend";
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
@@ -23,13 +23,53 @@ function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
 }
 
+// 🔥 Funções auxiliares adicionadas para gerar o token e formatar o usuário
+function signUserToken(userId: string, role: string) {
+  return jwt.sign(
+    { role },
+    process.env.JWT_SECRET || "secret_fallback",
+    {
+      subject: userId,
+      expiresIn: "7d",
+    }
+  );
+}
+
+function buildUserResponse(user: any) {
+  return {
+    id: user.id,
+    nome: user.name,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    cpf: user.cpf || null,
+    address: user.address || null,
+    role: user.role,
+    emailVerified: user.emailVerified,
+    phoneVerified: user.phoneVerified,
+    points: user.points,
+    level: user.level,
+    authProvider: user.authProvider,
+    avatar: user.avatar,
+    picture: user.picture,
+    registrationStatus: user.registrationStatus,
+    rejectReason: user.rejectReason,
+    documentFrontImage: user.documentFrontImage,
+    documentBackImage: user.documentBackImage,
+    addressProof: user.addressProof,
+    matricula: user.matricula || null,
+    isAcademicVerified: user.isAcademicVerified || false,
+  };
+}
+
 router.post("/register", async (req, res) => {
-  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy } = req.body;
+ 
+  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy, isGoogle } = req.body;
 
   try {
     const cleanName = (name || "").trim();
     const cleanEmail = (email || "").trim().toLowerCase();
-    const cleanMatricula = (matricula || "").trim().toUpperCase(); // Maiúscula por padrão
+    const cleanMatricula = (matricula || "").trim().toUpperCase();
     const cleanPhone = phone ? cleanDigits(phone) : null;
 
     if (!cleanName) {
@@ -58,7 +98,8 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    if (!senha || senha.length < 6) {
+    
+    if ((!senha || senha.length < 6) && !isGoogle) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
 
@@ -68,11 +109,63 @@ router.post("/register", async (req, res) => {
       });
     }
 
+   
+    if (isGoogle) {
+      if (cleanPhone) {
+        const phoneExists = await prisma.user.findFirst({
+          where: { phone: cleanPhone, email: { not: cleanEmail } },
+        });
+        if (phoneExists) {
+          return res.status(400).json({ error: "Telefone já cadastrado." });
+        }
+      }
 
+      let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      const hash = (senha && senha.length >= 6) ? await bcrypt.hash(senha, 10) : null;
+
+      if (user) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            name: cleanName,
+            matricula: cleanMatricula,
+            phone: cleanPhone,
+            senhaHash: user.senhaHash || hash, 
+            emailVerified: true,
+            authProvider: "GOOGLE",
+            termsAcceptedAt: user.termsAcceptedAt || (acceptedTerms ? new Date() : null),
+            privacyAcceptedAt: user.privacyAcceptedAt || (acceptedPrivacy ? new Date() : null),
+          }
+        });
+      } else {
+        user = await prisma.user.create({
+          data: {
+            name: cleanName,
+            email: cleanEmail,
+            phone: cleanPhone,
+            senhaHash: hash,
+            matricula: cleanMatricula,
+            authProvider: "GOOGLE",
+            emailVerified: true, 
+            phoneVerified: false,
+            termsAcceptedAt: acceptedTerms ? new Date() : null,
+            privacyAcceptedAt: acceptedPrivacy ? new Date() : null,
+          }
+        });
+      }
+
+      const token = signUserToken(user.id, user.role);
+
+      return res.status(201).json({
+        message: "Cadastro concluído com sucesso via Google!",
+        token,
+        user: buildUserResponse(user),
+      });
+    }
+   
     await prisma.pendingRegistration.deleteMany({
       where: { createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
-
     
     const emailExists = await prisma.user.findUnique({
       where: { email: cleanEmail },
@@ -102,7 +195,6 @@ router.post("/register", async (req, res) => {
         return res.status(400).json({ error: "Telefone já cadastrado." });
       }
     }
-
   
     const pendingConflict = await prisma.pendingRegistration.findFirst({
       where: {
@@ -138,7 +230,6 @@ router.post("/register", async (req, res) => {
         }
       }
 
-
       const emailCode = gen6();
       const hash = await bcrypt.hash(senha, 10);
 
@@ -169,7 +260,6 @@ router.post("/register", async (req, res) => {
       await prisma.pendingRegistration.delete({ where: { id: pendingByEmail.id } });
     }
 
-
     const hash = await bcrypt.hash(senha, 10);
     const emailCode = gen6();
 
@@ -195,14 +285,12 @@ router.post("/register", async (req, res) => {
     });
 
   } catch (err: any) {
-   
     console.error("ERRO /ifma/register:", err);
     return res.status(400).json({ 
       error: err.message || "Erro interno ao iniciar cadastro. Verifique os dados fornecidos." 
     });
   }
 });
-
 
 router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
   const { suapUsername, suapPassword } = req.body;
@@ -277,7 +365,6 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
   });
 });
 
-
 router.get("/status", ensureAuthenticated, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -303,8 +390,6 @@ router.get("/status", ensureAuthenticated, async (req, res) => {
     return res.status(500).json({ error: "Erro interno." });
   }
 });
-
-
 
 async function sendVerificationEmail(
   to: string,
