@@ -159,8 +159,9 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
-    if (!senha && !isGoogle) {
-      return res.status(400).json({ error: "Senha é obrigatória." });
+    // 🔥 CORREÇÃO: Ignora a validação de 6 caracteres se for login via Google
+    if ((!senha || senha.length < 6) && !isGoogle) {
+      return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
 
     if (!acceptedTerms || !acceptedPrivacy) {
@@ -180,7 +181,9 @@ router.post("/register", async (req, res) => {
       }
 
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      const hash = senha ? await bcrypt.hash(senha, 10) : null;
+      
+      // 🔥 CORREÇÃO: Só gera o hash se a senha existir e for válida (>= 6 chars)
+      const hash = (senha && senha.length >= 6) ? await bcrypt.hash(senha, 10) : null;
 
       if (user) {
         user = await prisma.user.update({
