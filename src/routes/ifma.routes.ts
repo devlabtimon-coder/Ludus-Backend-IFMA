@@ -9,7 +9,7 @@ import { verifySuapCredentials } from "../services/suap.service";
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const IFMA_EMAIL_DOMAIN = "@acad.ifma.edu.br";
+const IFMA_DOMAINS = ["@acad.ifma.edu.br", "@ifma.edu.br"];
 
 function gen6() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -80,9 +80,10 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
-    if (!cleanEmail.endsWith(IFMA_EMAIL_DOMAIN)) {
+    const isValidDomain = IFMA_DOMAINS.some(domain => cleanEmail.endsWith(domain));
+    if (!isValidDomain) {
       return res.status(400).json({ 
-        error: `Apenas e-mails institucionais são aceitos (${IFMA_EMAIL_DOMAIN}).`,
+        error: `Apenas e-mails institucionais são aceitos (@acad.ifma.edu.br ou @ifma.edu.br).`,
         code: "INVALID_INSTITUTIONAL_EMAIL",
       });
     }
