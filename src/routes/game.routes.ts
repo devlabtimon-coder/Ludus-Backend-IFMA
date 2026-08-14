@@ -371,6 +371,22 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
 
 gameRoutes.get("/home", async (_req, res) => {
   try {
+    
+    const formatGame = (g: any) => {
+      const copiesCount = g._count?.copies ?? 0;
+      const availableCopiesCount = (g.copies ?? []).filter(
+        (c: any) => c.available
+      ).length;
+      const isAvailableNow =
+        availableCopiesCount > 0 ||
+        (availableCopiesCount === 0 &&
+          g.available === true &&
+          (g.allowOriginalRental === true || copiesCount === 0));
+      const { copies, _count, ...rest } = g;
+      return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
+    };
+
+    
     const top = await prisma.rental.groupBy({
       by: ["gameId"],
       where: {
@@ -380,74 +396,108 @@ gameRoutes.get("/home", async (_req, res) => {
       orderBy: { _count: { gameId: "desc" } },
       take: 6,
     });
-
     const topIds = top.map((t) => t.gameId).filter(Boolean) as string[];
-
     const topGames = topIds.length
       ? await prisma.game.findMany({
-        where: {
-          id: { in: topIds },
-          isActive: true,
-          isVisible: true,
-        },
-        include: {
-          _count: { select: { copies: true } },
-          copies: { select: { available: true } },
-        },
-      })
+          where: {
+            id: { in: topIds },
+            isActive: true,
+            isVisible: true,
+          },
+          include: {
+            _count: { select: { copies: true } },
+            copies: { select: { available: true } },
+          },
+        })
       : [];
-
     const topById = new Map(topGames.map((g) => [g.id, g]));
-
     const mostRented = topIds
       .map((id) => topById.get(id))
       .filter(Boolean)
-      .map((g: any) => {
-        const copiesCount = g._count?.copies ?? 0;
-        const availableCopiesCount = (g.copies ?? []).filter(
-          (c: any) => c.available
-        ).length;
+      .map(formatGame);
 
-        const isAvailableNow =
-          availableCopiesCount > 0 ||
-          (availableCopiesCount === 0 &&
-            g.available === true &&
-            (g.allowOriginalRental === true || copiesCount === 0));
-
-        const { copies, _count, ...rest } = g;
-        return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
-      });
-
+   
     const forYouRaw = await prisma.game.findMany({
       where: {
         isActive: true,
         isVisible: true,
       },
       orderBy: [{ rating: "desc" }, { ratingsCount: "desc" }, { title: "asc" }],
-      take: 3,
+      take: 8, 
       include: {
         _count: { select: { copies: true } },
         copies: { select: { available: true } },
       },
     });
+    const forYou = forYouRaw.map(formatGame);
 
-    const forYou = forYouRaw.map((g: any) => {
-      const copiesCount = g._count?.copies ?? 0;
-      const availableCopiesCount = (g.copies ?? []).filter(
-        (c: any) => c.available
-      ).length;
+ 
+    const defaultInclude = {
+      _count: { select: { copies: true } },
+      copies: { select: { available: true } },
+    };
 
-      const isAvailableNow =
-        availableCopiesCount > 0 ||
-        (availableCopiesCount === 0 &&
-          g.available === true &&
-          (g.allowOriginalRental === true || copiesCount === 0));
+   
+    const [iniciantesRaw, doisJogadoresRaw, partyRaw, rapidosRaw] = await Promise.all([
+     
+      prisma.game.findMany({
+        where: { isActive: true, isVisible: true, tier: { in: ["LATAO", "BRONZE"] } },
+        take: 8,
+        include: defaultInclude,
+      }),
+      
+      prisma.game.findMany({
+        where: { isActive: true, isVisible: true, minPlayers: { lte: 2 }, maxPlayers: { gte: 2 } },
+        take: 8,
+        include: defaultInclude,
+      }),
+     
+      prisma.game.findMany({
+        where: { isActive: true, isVisible: true, maxPlayers: { gte: 5 } },
+        take: 8,
+        include: defaultInclude,
+      }),
+      
+      prisma.game.findMany({
+        where: { isActive: true, isVisible: true, maxTime: { lte: 30 } },
+        take: 8,
+        include: defaultInclude,
+      }),
+    ]);
 
-      const { copies, _count, ...rest } = g;
-      return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
-    });
+   
+    const rawCollections = [
+      {
+        id: "iniciantes",
+        title: "Por onde eu começo?",
+        subtitle: "Novo no hobby? Então indicamos estes jogos",
+        games: iniciantesRaw.map(formatGame),
+      },
+      {
+        id: "dois-jogadores",
+        title: "Para 2 jogadores",
+        subtitle: "Os queridinhos exclusivos para jogar em dupla",
+        games: doisJogadoresRaw.map(formatGame),
+      },
+      {
+        id: "party",
+        title: "Em Ritmo de Festa",
+        subtitle: "Pra curtir e dar risada com a galera",
+        games: partyRaw.map(formatGame),
+      },
+      {
+        id: "rapidos",
+        title: "Vapt-Vupt",
+        subtitle: "Jogos rápidos para matar o tempo (Até 30 min)",
+        games: rapidosRaw.map(formatGame),
+      },
+    ];
 
-    return res.json({ forYou, mostRented });
+    
+    const collections = rawCollections.filter((c) => c.games.length > 0);
+
+    
+    return res.json({ forYou, mostRented, collections });
   } catch (err) {
     console.error("Erro ao montar home:", err);
     return res.status(500).json({ error: "Erro ao carregar dados da home" });
