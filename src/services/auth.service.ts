@@ -127,22 +127,28 @@ export async function loginWithGoogle(idToken: string) {
   console.log("Token recebido na API:", idToken?.substring(0, 50));
 
   if (!process.env.GOOGLE_WEB_CLIENT_ID) {
-    throw new Error("GOOGLE_WEB_CLIENT_ID não configurado");
+    throw new Error("GOOGLE_WEB_CLIENT_ID não configurado no servidor.");
   }
 
-  const ticket = await googleClient.verifyIdToken({
-    idToken,
-    audience: process.env.GOOGLE_WEB_CLIENT_ID,
-  });
+  let ticket;
+  try {
+    ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+    });
+  } catch (error: any) {
+    console.error("Falha ao comunicar com os servidores do Google:", error.message);
+    throw new Error("Não foi possível validar o Google no momento. Verifique sua conexão e tente novamente.");
+  }
 
   const payload = ticket.getPayload();
   if (!payload) {
-    throw new Error("Token inválido");
+    throw new Error("Token inválido ou vazio fornecido pelo Google.");
   }
 
   const email = payload.email?.toLowerCase().trim();
   if (!email) {
-    throw new Error("Email não fornecido pelo Google");
+    throw new Error("A sua conta Google não forneceu um e-mail válido.");
   }
 
   if (!email.endsWith("@ifma.edu.br") && !email.endsWith("@acad.ifma.edu.br")) {
@@ -157,7 +163,6 @@ export async function loginWithGoogle(idToken: string) {
     where: { email },
   });
 
-
   if (!user) {
     return {
       isNewUser: true,
@@ -166,18 +171,16 @@ export async function loginWithGoogle(idToken: string) {
     };
   }
 
-
   user = await prisma.user.update({
     where: { id: user.id },
     data: {
       googleSub: user.googleSub ?? googleSub, 
       authProvider: "GOOGLE",
-      emailVerified: true, // Google confirmou, o banco obedece!
+      emailVerified: true,
       picture: user.picture ?? picture,
     },
   });
 
-  
   if (!user.matricula) {
     return {
       needsCompletion: true,
