@@ -371,7 +371,6 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
 
 gameRoutes.get("/home", async (_req, res) => {
   try {
-   
     const formatGame = (g: any) => {
       const copiesCount = g._count?.copies ?? 0;
       const availableCopiesCount = (g.copies ?? []).filter(
@@ -386,7 +385,6 @@ gameRoutes.get("/home", async (_req, res) => {
       return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
     };
 
-   
     const top = await prisma.rental.groupBy({
       by: ["gameId"],
       where: {
@@ -396,7 +394,9 @@ gameRoutes.get("/home", async (_req, res) => {
       orderBy: { _count: { gameId: "desc" } },
       take: 6,
     });
+    
     const topIds = top.map((t) => t.gameId).filter(Boolean) as string[];
+    
     const topGames = topIds.length
       ? await prisma.game.findMany({
           where: {
@@ -410,13 +410,14 @@ gameRoutes.get("/home", async (_req, res) => {
           },
         })
       : [];
+      
     const topById = new Map(topGames.map((g) => [g.id, g]));
+    
     const mostRented = topIds
       .map((id) => topById.get(id))
       .filter(Boolean)
       .map(formatGame);
 
-    
     const forYouRaw = await prisma.game.findMany({
       where: {
         isActive: true,
@@ -429,59 +430,38 @@ gameRoutes.get("/home", async (_req, res) => {
         copies: { select: { available: true } },
       },
     });
+    
     const forYou = forYouRaw.map(formatGame);
 
-  
     const defaultInclude = {
       _count: { select: { copies: true } },
       copies: { select: { available: true } },
     };
 
- 
     const [
       iniciantesRaw, 
       doisJogadoresRaw, 
       partyRaw, 
       rapidosRaw,
       cooperativosRaw,
-      expertRaw,
       familiaRaw,
       aclamadosRaw,
-      longosRaw,
-      soloRaw
+      cartasRaw,
+      blefeRaw,
+      dadosRaw
     ] = await Promise.all([
-      
       prisma.game.findMany({ where: { isActive: true, isVisible: true, tier: { in: ["LATAO", "BRONZE"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-      
       prisma.game.findMany({ where: { isActive: true, isVisible: true, minPlayers: { lte: 2 }, maxPlayers: { gte: 2 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-      
       prisma.game.findMany({ where: { isActive: true, isVisible: true, maxPlayers: { gte: 5 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-      
       prisma.game.findMany({ where: { isActive: true, isVisible: true, maxTime: { lte: 30 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-      
       prisma.game.findMany({ where: { isActive: true, isVisible: true, mechanics: { hasSome: ["Cooperativo"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-     
-      prisma.game.findMany({ where: { isActive: true, isVisible: true, tier: { in: ["OURO", "DIAMANTE"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-     
       prisma.game.findMany({ where: { isActive: true, isVisible: true, minAge: { lte: 8, gt: 0 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-      
-     
-      prisma.game.findMany({ where: { isActive: true, isVisible: true, rating: { gte: 8 } }, take: 8, orderBy: { ratingsCount: "desc" }, include: defaultInclude }),
-
-     
-      prisma.game.findMany({ where: { isActive: true, isVisible: true, maxTime: { gte: 90 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
-
-     
-      prisma.game.findMany({ where: { isActive: true, isVisible: true, minPlayers: { equals: 1 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, rating: { gte: 4 } }, take: 8, orderBy: { ratingsCount: "desc" }, include: defaultInclude }),
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, mechanics: { hasSome: ["Gestão de Mão", "Construção de Baralho", "Colecionar Componentes"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, mechanics: { hasSome: ["Blefe", "Dedução", "Papéis Ocultos", "Identidade Oculta"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, mechanics: { hasSome: ["Rolagem de Dados"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
     ]);
 
- 
     const rawCollections = [
       {
         id: "aclamados",
@@ -496,22 +476,40 @@ gameRoutes.get("/home", async (_req, res) => {
         games: iniciantesRaw.map(formatGame),
       },
       {
+        id: "party",
+        title: "Em Ritmo de Festa",
+        subtitle: "Para jogar com a galera (5+ jogadores)",
+        games: partyRaw.map(formatGame),
+      },
+      {
+        id: "cartas",
+        title: "Cartas na Mesa",
+        subtitle: "Para quem ama gerenciar a mão e combar",
+        games: cartasRaw.map(formatGame),
+      },
+      {
+        id: "blefe",
+        title: "Confie Desconfiando",
+        subtitle: "Jogos de blefe, dedução e muita trairagem",
+        games: blefeRaw.map(formatGame),
+      },
+      {
         id: "dois-jogadores",
         title: "Para 2 jogadores",
         subtitle: "Os queridinhos exclusivos para jogar em dupla",
         games: doisJogadoresRaw.map(formatGame),
       },
       {
+        id: "dados",
+        title: "Sorte ou Estratégia?",
+        subtitle: "Jogos movidos à tensão de rolar os dados",
+        games: dadosRaw.map(formatGame),
+      },
+      {
         id: "cooperativos",
         title: "Juntos venceremos... ou não",
         subtitle: "Unam forças contra o tabuleiro",
         games: cooperativosRaw.map(formatGame),
-      },
-      {
-        id: "party",
-        title: "Em Ritmo de Festa",
-        subtitle: "Pra curtir, blefar e dar risada com a galera",
-        games: partyRaw.map(formatGame),
       },
       {
         id: "familia",
@@ -525,27 +523,8 @@ gameRoutes.get("/home", async (_req, res) => {
         subtitle: "Jogos rápidos para matar o tempo (Até 30 min)",
         games: rapidosRaw.map(formatGame),
       },
-      {
-        id: "solo",
-        title: "Aventura Solo",
-        subtitle: "Jogos incríveis que não precisam de companhia",
-        games: soloRaw.map(formatGame),
-      },
-      {
-        id: "longos",
-        title: "Sessão Épica",
-        subtitle: "Para quem tem tempo sobrando e mesa grande",
-        games: longosRaw.map(formatGame),
-      },
-      {
-        id: "expert",
-        title: "Desafio Aceito",
-        subtitle: "Jogos pesados para fritar o cérebro",
-        games: expertRaw.map(formatGame),
-      },
     ];
 
-   
     const collections = rawCollections.filter((c) => c.games.length > 0);
 
     return res.json({ forYou, mostRented, collections });
