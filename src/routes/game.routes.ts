@@ -371,7 +371,7 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
 
 gameRoutes.get("/home", async (_req, res) => {
   try {
-    
+   
     const formatGame = (g: any) => {
       const copiesCount = g._count?.copies ?? 0;
       const availableCopiesCount = (g.copies ?? []).filter(
@@ -386,7 +386,7 @@ gameRoutes.get("/home", async (_req, res) => {
       return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
     };
 
-    
+   
     const top = await prisma.rental.groupBy({
       by: ["gameId"],
       where: {
@@ -416,7 +416,7 @@ gameRoutes.get("/home", async (_req, res) => {
       .filter(Boolean)
       .map(formatGame);
 
-   
+    
     const forYouRaw = await prisma.game.findMany({
       where: {
         isActive: true,
@@ -431,42 +431,64 @@ gameRoutes.get("/home", async (_req, res) => {
     });
     const forYou = forYouRaw.map(formatGame);
 
- 
+  
     const defaultInclude = {
       _count: { select: { copies: true } },
       copies: { select: { available: true } },
     };
 
-   
-    const [iniciantesRaw, doisJogadoresRaw, partyRaw, rapidosRaw] = await Promise.all([
-     
-      prisma.game.findMany({
-        where: { isActive: true, isVisible: true, tier: { in: ["LATAO", "BRONZE"] } },
-        take: 8,
-        include: defaultInclude,
-      }),
+ 
+    const [
+      iniciantesRaw, 
+      doisJogadoresRaw, 
+      partyRaw, 
+      rapidosRaw,
+      cooperativosRaw,
+      expertRaw,
+      familiaRaw,
+      aclamadosRaw,
+      longosRaw,
+      soloRaw
+    ] = await Promise.all([
       
-      prisma.game.findMany({
-        where: { isActive: true, isVisible: true, minPlayers: { lte: 2 }, maxPlayers: { gte: 2 } },
-        take: 8,
-        include: defaultInclude,
-      }),
-     
-      prisma.game.findMany({
-        where: { isActive: true, isVisible: true, maxPlayers: { gte: 5 } },
-        take: 8,
-        include: defaultInclude,
-      }),
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, tier: { in: ["LATAO", "BRONZE"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
       
-      prisma.game.findMany({
-        where: { isActive: true, isVisible: true, maxTime: { lte: 30 } },
-        take: 8,
-        include: defaultInclude,
-      }),
+      
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, minPlayers: { lte: 2 }, maxPlayers: { gte: 2 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+      
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, maxPlayers: { gte: 5 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+      
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, maxTime: { lte: 30 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+      
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, mechanics: { hasSome: ["Cooperativo"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+     
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, tier: { in: ["OURO", "DIAMANTE"] } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+     
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, minAge: { lte: 8, gt: 0 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+      
+     
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, rating: { gte: 8 } }, take: 8, orderBy: { ratingsCount: "desc" }, include: defaultInclude }),
+
+     
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, maxTime: { gte: 90 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
+
+     
+      prisma.game.findMany({ where: { isActive: true, isVisible: true, minPlayers: { equals: 1 } }, take: 8, orderBy: { rating: "desc" }, include: defaultInclude }),
     ]);
 
-   
+ 
     const rawCollections = [
+      {
+        id: "aclamados",
+        title: "Aclamados pela Crítica",
+        subtitle: "Os jogos com as maiores notas da galera",
+        games: aclamadosRaw.map(formatGame),
+      },
       {
         id: "iniciantes",
         title: "Por onde eu começo?",
@@ -480,10 +502,22 @@ gameRoutes.get("/home", async (_req, res) => {
         games: doisJogadoresRaw.map(formatGame),
       },
       {
+        id: "cooperativos",
+        title: "Juntos venceremos... ou não",
+        subtitle: "Unam forças contra o tabuleiro",
+        games: cooperativosRaw.map(formatGame),
+      },
+      {
         id: "party",
         title: "Em Ritmo de Festa",
-        subtitle: "Pra curtir e dar risada com a galera",
+        subtitle: "Pra curtir, blefar e dar risada com a galera",
         games: partyRaw.map(formatGame),
+      },
+      {
+        id: "familia",
+        title: "Diversão em Família",
+        subtitle: "Regras acessíveis para jogar com os pequenos",
+        games: familiaRaw.map(formatGame),
       },
       {
         id: "rapidos",
@@ -491,12 +525,29 @@ gameRoutes.get("/home", async (_req, res) => {
         subtitle: "Jogos rápidos para matar o tempo (Até 30 min)",
         games: rapidosRaw.map(formatGame),
       },
+      {
+        id: "solo",
+        title: "Aventura Solo",
+        subtitle: "Jogos incríveis que não precisam de companhia",
+        games: soloRaw.map(formatGame),
+      },
+      {
+        id: "longos",
+        title: "Sessão Épica",
+        subtitle: "Para quem tem tempo sobrando e mesa grande",
+        games: longosRaw.map(formatGame),
+      },
+      {
+        id: "expert",
+        title: "Desafio Aceito",
+        subtitle: "Jogos pesados para fritar o cérebro",
+        games: expertRaw.map(formatGame),
+      },
     ];
 
-    
+   
     const collections = rawCollections.filter((c) => c.games.length > 0);
 
-    
     return res.json({ forYou, mostRented, collections });
   } catch (err) {
     console.error("Erro ao montar home:", err);
