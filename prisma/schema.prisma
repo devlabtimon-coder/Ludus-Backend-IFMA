@@ -148,7 +148,9 @@ model Game {
   minAge     Int      @default(0)
   minTime    Int      @default(0)
   maxTime    Int?
-  mechanics  String[]
+
+  // Relação M:N com Mechanic (substituindo o antigo String[])
+  mechanics  Mechanic[]
 
   userId String
   owner  User   @relation(fields: [userId], references: [id])
@@ -163,6 +165,23 @@ model Game {
 
   @@index([title])
   @@index([ludopediaId])
+}
+
+model Mechanic {
+  id          String   @id @default(uuid())
+  namePt      String   @unique
+  nameEn      String?
+  category    String
+  definition  String   @db.Text
+  icon        String   
+  active      Boolean  @default(true)
+  
+  games       Game[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("mechanics")
 }
 
 model GameComponent {

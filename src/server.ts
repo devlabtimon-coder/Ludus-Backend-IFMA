@@ -22,6 +22,7 @@ import { categoryRoutes } from "./routes/category.routes";
 import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
+import { mechanicRoutes } from './routes/mechanic.routes';
 
 const credentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
@@ -60,6 +61,7 @@ if (process.env.IFMA_MODE === "true") {
 app.use("/games", gameRoutes);
 app.use("/games", gameCopyRoutes);
 app.use("/games", gameWatchRoutes);
+app.use('/mechanics', mechanicRoutes);
 
 app.use("/favorites", favoritesRoutes);
 app.use("/rentals", rentalRoutes);
