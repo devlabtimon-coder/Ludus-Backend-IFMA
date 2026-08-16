@@ -23,7 +23,6 @@ function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
 }
 
-// 🔥 Funções auxiliares adicionadas para gerar o token e formatar o usuário
 function signUserToken(userId: string, role: string) {
   return jwt.sign(
     { role },
@@ -92,13 +91,12 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Matrícula é obrigatória." });
     }
 
-    if (!/^\d{5}[A-Z0-9.]+\.TMN\d+$/.test(cleanMatricula)) {
+    if (!/^(\d{5}[A-Z0-9.]+\.TMN\d+|\d{7})$/.test(cleanMatricula)) {
       return res.status(400).json({
-        error: "Matrícula inválida. Use o padrão institucional do Campus Timon (Ex: 20241INF.TMN0025).",
+        error: "Matrícula inválida. Use o padrão do Campus Timon (Ex: 20241INF.TMN0025) ou o SIAPE (7 dígitos).",
         code: "INVALID_MATRICULA",
       });
     }
-
     
     if ((!senha || senha.length < 6) && !isGoogle) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
@@ -110,7 +108,6 @@ router.post("/register", async (req, res) => {
       });
     }
 
-   
     if (isGoogle) {
       if (cleanPhone) {
         const phoneExists = await prisma.user.findFirst({
