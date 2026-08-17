@@ -7,6 +7,7 @@ const parseString = (value: any): string => {
 };
 
 export class MechanicController {
+  
   async getGuideMechanics(req: Request, res: Response) {
     try {
       const mechanics = await prisma.mechanic.findMany({
@@ -20,7 +21,7 @@ export class MechanicController {
             where: { mechanics: { has: m.namePt } },
             select: { id: true, title: true }
           });
-          return { ...m, games };
+          return { ...m, games: games.map(g => g.title) }; 
         })
       );
 
@@ -43,7 +44,7 @@ export class MechanicController {
             where: { mechanics: { has: m.namePt } },
             select: { id: true, title: true }
           });
-          return { ...m, games };
+          return { ...m, games: games.map(g => g.title) }; 
         })
       );
 
@@ -56,16 +57,40 @@ export class MechanicController {
 
   async createMechanic(req: Request, res: Response) {
     try {
-      const { namePt, nameEn, category, definition, icon, active } = req.body;
+      const { namePt, nameEn, category, definition, icon, active, games } = req.body;
 
       const mechanicExists = await prisma.mechanic.findUnique({ where: { namePt } });
       if (mechanicExists) {
         return res.status(400).json({ error: 'Uma mecânica com este nome já existe.' });
       }
 
+     
       const mechanic = await prisma.mechanic.create({
-        data: { namePt, nameEn, category, definition, icon, active }
+        data: { 
+          namePt, 
+          nameEn, 
+          category, 
+          definition, 
+          icon: icon || 'Settings', 
+          active: active !== undefined ? active : true 
+        }
       });
+
+   
+      if (games && Array.isArray(games) && games.length > 0) {
+        const gamesToUpdate = await prisma.game.findMany({
+          where: { title: { in: games } }
+        });
+
+        for (const game of gamesToUpdate) {
+          if (!game.mechanics.includes(namePt)) {
+            await prisma.game.update({
+              where: { id: game.id },
+              data: { mechanics: { push: namePt } } 
+            });
+          }
+        }
+      }
 
       return res.status(201).json(mechanic);
     } catch (error) {
@@ -88,7 +113,7 @@ export class MechanicController {
               nameEn: m.nameEn,
               category: m.chip || m.category,
               definition: m.definition,
-              icon: m.icon || 'settings-outline',
+              icon: m.icon || 'Settings',
             }
           })
         )
@@ -104,41 +129,74 @@ export class MechanicController {
   async updateMechanic(req: Request, res: Response) {
     try {
       const id = parseString(req.params.id);
-      const { namePt, nameEn, category, definition, icon, active } = req.body;
+      const { namePt, nameEn, category, definition, icon, active, games } = req.body;
 
       const oldMechanic = await prisma.mechanic.findUnique({ where: { id } });
       if (!oldMechanic) {
         return res.status(404).json({ error: 'Mecânica não encontrada.' });
       }
 
+      const finalName = namePt || oldMechanic.namePt;
+
+     
+      const updatedMechanic = await prisma.mechanic.update({
+        where: { id },
+        data: { 
+          namePt, 
+          nameEn, 
+          category, 
+          definition,
+          ...(icon !== undefined && { icon }), 
+          ...(active !== undefined && { active })
+        }
+      });
+
+     
       if (namePt && namePt !== oldMechanic.namePt) {
-        const gamesToUpdate = await prisma.game.findMany({
+        const gamesWithOldName = await prisma.game.findMany({
           where: { mechanics: { has: oldMechanic.namePt } }
         });
 
-        const updateGamesPromises = gamesToUpdate.map(game => {
-          const updatedMechanics = game.mechanics.map(m => m === oldMechanic.namePt ? namePt : m);
-          return prisma.game.update({
-            where: { id: game.id },
-            data: { mechanics: updatedMechanics }
+        for (const g of gamesWithOldName) {
+          const updatedList = g.mechanics.map(m => m === oldMechanic.namePt ? namePt : m);
+          await prisma.game.update({
+            where: { id: g.id },
+            data: { mechanics: { set: updatedList } } 
           });
-        });
-
-        await prisma.$transaction([
-          ...updateGamesPromises,
-          prisma.mechanic.update({
-            where: { id },
-            data: { namePt, nameEn, category, definition, icon, active }
-          })
-        ]);
-      } else {
-        await prisma.mechanic.update({
-          where: { id },
-          data: { namePt, nameEn, category, definition, icon, active }
-        });
+        }
       }
 
-      const updatedMechanic = await prisma.mechanic.findUnique({ where: { id } });
+     
+      if (games && Array.isArray(games)) {
+        const gamesCurrentlyWithMechanic = await prisma.game.findMany({
+          where: { mechanics: { has: finalName } }
+        });
+        const titlesCurrentlyWithMechanic = gamesCurrentlyWithMechanic.map(g => g.title);
+
+        const titlesToAdd = games.filter((title: string) => !titlesCurrentlyWithMechanic.includes(title));
+        const gamesToRemove = gamesCurrentlyWithMechanic.filter(g => !games.includes(g.title));
+
+       
+        if (titlesToAdd.length > 0) {
+          const gamesToAdd = await prisma.game.findMany({ where: { title: { in: titlesToAdd } } });
+          for (const g of gamesToAdd) {
+            await prisma.game.update({
+              where: { id: g.id },
+              data: { mechanics: { push: finalName } }
+            });
+          }
+        }
+
+       
+        for (const g of gamesToRemove) {
+          const filtered = g.mechanics.filter(m => m !== finalName);
+          await prisma.game.update({
+            where: { id: g.id },
+            data: { mechanics: { set: filtered } }
+          });
+        }
+      }
+
       return res.json(updatedMechanic);
     } catch (error) {
       console.error(error);
@@ -155,22 +213,21 @@ export class MechanicController {
         return res.status(404).json({ error: 'Mecânica não encontrada.' });
       }
 
+      
       const gamesToUpdate = await prisma.game.findMany({
         where: { mechanics: { has: oldMechanic.namePt } }
       });
 
-      const updateGamesPromises = gamesToUpdate.map(game => {
+      for (const game of gamesToUpdate) {
         const updatedMechanics = game.mechanics.filter(m => m !== oldMechanic.namePt);
-        return prisma.game.update({
+        await prisma.game.update({
           where: { id: game.id },
-          data: { mechanics: updatedMechanics }
+          data: { mechanics: { set: updatedMechanics } } 
         });
-      });
+      }
 
-      await prisma.$transaction([
-        ...updateGamesPromises,
-        prisma.mechanic.delete({ where: { id } })
-      ]);
+    
+      await prisma.mechanic.delete({ where: { id } });
 
       return res.status(204).send();
     } catch (error) {
