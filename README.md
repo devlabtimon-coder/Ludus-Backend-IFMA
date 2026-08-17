@@ -82,10 +82,7 @@ socioemocionais. Este sistema digitaliza e expande essa iniciativa.
 |------|-------|
 | Joseni Daniel | Desenvolvedor |
 | Hemyly Rayany | Desenvolvedora |
-| Ramilson Rios | Desenvolvedor |
-| Marcelo Loureiro | Desenvolvedor |
-| Guilherme Raphael | Desenvolvedor |
-| Hélio Victor | Desenvolvedor |
+| Jhor| Desenvolvedor |
 | **Nara Chaves** | **Orientadora** |
 
 ---
