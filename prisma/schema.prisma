@@ -149,8 +149,8 @@ model Game {
   minTime    Int      @default(0)
   maxTime    Int?
 
-  // Relação M:N com Mechanic (substituindo o antigo String[])
-  mechanics  Mechanic[]
+  // Retornado para Array de Strings simples
+  mechanics  String[]
 
   userId String
   owner  User   @relation(fields: [userId], references: [id])
@@ -176,7 +176,7 @@ model Mechanic {
   icon        String   
   active      Boolean  @default(true)
   
-  games       Game[]
+  // Relação com Game removida daqui para total isolamento
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
