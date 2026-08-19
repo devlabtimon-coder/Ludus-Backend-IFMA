@@ -64,7 +64,6 @@ export class MechanicController {
         return res.status(400).json({ error: 'Uma mecânica com este nome já existe.' });
       }
 
-     
       const mechanic = await prisma.mechanic.create({
         data: { 
           namePt, 
@@ -76,7 +75,6 @@ export class MechanicController {
         }
       });
 
-   
       if (games && Array.isArray(games) && games.length > 0) {
         const gamesToUpdate = await prisma.game.findMany({
           where: { title: { in: games } }
@@ -138,7 +136,6 @@ export class MechanicController {
 
       const finalName = namePt || oldMechanic.namePt;
 
-     
       const updatedMechanic = await prisma.mechanic.update({
         where: { id },
         data: { 
@@ -151,7 +148,6 @@ export class MechanicController {
         }
       });
 
-     
       if (namePt && namePt !== oldMechanic.namePt) {
         const gamesWithOldName = await prisma.game.findMany({
           where: { mechanics: { has: oldMechanic.namePt } }
@@ -166,7 +162,6 @@ export class MechanicController {
         }
       }
 
-     
       if (games && Array.isArray(games)) {
         const gamesCurrentlyWithMechanic = await prisma.game.findMany({
           where: { mechanics: { has: finalName } }
@@ -176,7 +171,6 @@ export class MechanicController {
         const titlesToAdd = games.filter((title: string) => !titlesCurrentlyWithMechanic.includes(title));
         const gamesToRemove = gamesCurrentlyWithMechanic.filter(g => !games.includes(g.title));
 
-       
         if (titlesToAdd.length > 0) {
           const gamesToAdd = await prisma.game.findMany({ where: { title: { in: titlesToAdd } } });
           for (const g of gamesToAdd) {
@@ -187,7 +181,6 @@ export class MechanicController {
           }
         }
 
-       
         for (const g of gamesToRemove) {
           const filtered = g.mechanics.filter(m => m !== finalName);
           await prisma.game.update({
@@ -213,7 +206,6 @@ export class MechanicController {
         return res.status(404).json({ error: 'Mecânica não encontrada.' });
       }
 
-      
       const gamesToUpdate = await prisma.game.findMany({
         where: { mechanics: { has: oldMechanic.namePt } }
       });
@@ -226,7 +218,6 @@ export class MechanicController {
         });
       }
 
-    
       await prisma.mechanic.delete({ where: { id } });
 
       return res.status(204).send();
