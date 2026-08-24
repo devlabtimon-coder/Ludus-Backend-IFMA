@@ -16,8 +16,13 @@ import {
 
 export const rentalRoutes = Router();
 
-function toISODateString(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+function getBrtDate(date: Date) {
+  return new Date(date.getTime() - 3 * 60 * 60 * 1000);
+}
+
+function toBrtDateString(brtDate: Date) {
+  return `${brtDate.getUTCFullYear()}-${String(brtDate.getUTCMonth() + 1).padStart(2, "0")}-${String(brtDate.getUTCDate()).padStart(2, "0")}`;
 }
 
 
@@ -42,24 +47,28 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(400).json({ error: "Não é possível agendar reservas no passado." });
   }
 
-  const startDay = startDate.getDay();
-  const endDay = endDate.getDay();
+ 
+  const brtStart = getBrtDate(startDate);
+  const brtEnd = getBrtDate(endDate);
+
+  const startDay = brtStart.getUTCDay();
+  const endDay = brtEnd.getUTCDay();
 
   if (startDay === 0 || startDay === 6 || endDay === 0 || endDay === 6) {
     return res.status(400).json({ error: "A biblioteca funciona apenas de segunda a sexta-feira." });
   }
 
-  const startHour = startDate.getHours();
-  const endHour = endDate.getHours();
+  const startHour = brtStart.getUTCHours();
+  const endHour = brtEnd.getUTCHours();
 
   if (startHour < 8 || startHour >= 19 || endHour < 8 || endHour > 19) {
     return res.status(400).json({ error: "Horário de agendamento fora do funcionamento (08h às 19h)." });
   }
 
  
-  const holidays = await getHolidaysByYear(startDate.getFullYear());
-  const startStr = toISODateString(startDate);
-  const endStr = toISODateString(endDate);
+  const holidays = await getHolidaysByYear(brtStart.getUTCFullYear());
+  const startStr = toBrtDateString(brtStart);
+  const endStr = toBrtDateString(brtEnd);
 
   if (holidays.includes(startStr)) {
     return res.status(400).json({ error: "A data de retirada cai em um feriado. A biblioteca estará fechada." });
