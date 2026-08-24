@@ -23,36 +23,27 @@ function getNextCategory(current: ClientCategory) {
 
 export const userProfileRoutes = Router();
 
-// Função utilitária para extrair o ID público do Cloudinary e permitir a exclusão de arquivos velhos
+
 function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
   if (!url) return null;
-
   try {
     const marker = "/upload/";
     const idx = url.indexOf(marker);
-
     if (idx === -1) return null;
-
     let pathPart = url.slice(idx + marker.length);
-
     const parts = pathPart.split("/");
     const versionIndex = parts.findIndex((part) => /^v\d+$/.test(part));
-
     if (versionIndex >= 0) {
       pathPart = parts.slice(versionIndex + 1).join("/");
     }
-
     pathPart = pathPart.replace(/\.[^.]+$/, "");
-
     return pathPart;
   } catch {
     return null;
   }
 }
 
-// =======================================================
-// ROTA: OBTER PERFIL DO USUÁRIO LOGADO
-// =======================================================
+
 userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -71,17 +62,20 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         avatar: true,
         picture: true,
         senhaHash: true,
-
-        // Status de Cadastro e Documentos
+        
         registrationStatus: true,
         rejectReason: true,
         documentFrontImage: true,
         documentBackImage: true,
         addressProof: true,
         selfieWithId: true,
-
         clientCategory: true,
         totalRentalsCount: true,
+       
+        isAcademicVerified: true,
+        academicVerifiedAt: true,
+        matricula: true,
+        enrollmentProof: true,
       },
     });
 
@@ -91,7 +85,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
 
     const currentCount = user.totalRentalsCount ?? 0;
     const rawProgress = currentCount % RENTALS_PER_PROMOTION;
-
     const progress =
       currentCount === 0
         ? 0
@@ -120,17 +113,19 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       avatar: user.avatar,
       picture: user.picture,
       hasPassword: !!user.senhaHash,
-
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
       documentFrontImage: user.documentFrontImage,
       documentBackImage: user.documentBackImage,
       addressProof: user.addressProof,
       selfieWithId: user.selfieWithId,
-
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
 
+      isAcademicVerified: user.isAcademicVerified,
+      academicVerifiedAt: user.academicVerifiedAt,
+      matricula: user.matricula,
+      enrollmentProof: user.enrollmentProof,
       categoryProgress: {
         current: progress,
         total: RENTALS_PER_PROMOTION,
@@ -144,9 +139,7 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// =======================================================
-// ROTA: ATUALIZAR DADOS BÁSICOS DO PERFIL
-// =======================================================
+
 userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   try {
     const { name, phone } = req.body;
@@ -154,25 +147,21 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
 
     if (name) {
       const cleanName = String(name).trim();
-
       if (cleanName.length < 3) {
         return res.status(400).json({
           error: "Nome precisa ter pelo menos 3 caracteres.",
         });
       }
-
       updateData.name = cleanName;
     }
 
     if (phone !== undefined) {
       const cleanPhone = String(phone).replace(/\D/g, "");
-
       if (cleanPhone.length < 10) {
         return res.status(400).json({
           error: "Telefone inválido.",
         });
       }
-
       const phoneExists = await prisma.user.findFirst({
         where: {
           phone: cleanPhone,
@@ -181,13 +170,11 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
           },
         },
       });
-
       if (phoneExists) {
         return res.status(400).json({
           error: "Telefone já está sendo usado.",
         });
       }
-
       updateData.phone = cleanPhone;
     }
 
@@ -222,9 +209,7 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// =======================================================
-// ROTA: ALTERAR/CRIAR SENHA
-// =======================================================
+
 userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -232,7 +217,6 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
     if (!newPassword) {
       return res.status(400).json({ error: "A nova senha é obrigatória." });
     }
-
     if (String(newPassword).length < 6) {
       return res.status(400).json({
         error: "A nova senha deve ter pelo menos 6 caracteres.",
@@ -251,16 +235,13 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
       if (!currentPassword) {
         return res.status(400).json({ error: "A senha atual é obrigatória." });
       }
-
       const passwordOk = await bcrypt.compare(currentPassword, user.senhaHash);
-
       if (!passwordOk) {
         return res.status(400).json({ error: "Senha atual incorreta." });
       }
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-
     await prisma.user.update({
       where: { id: req.user.id },
       data: { senhaHash: newHash },
@@ -278,9 +259,6 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
   }
 });
 
-// =======================================================
-// ROTA: ATUALIZAR AVATAR DO USUÁRIO
-// =======================================================
 userProfileRoutes.post(
   "/me/avatar",
   ensureAuthenticated,
@@ -288,7 +266,6 @@ userProfileRoutes.post(
   async (req, res) => {
     try {
       const file = req.file;
-
       if (!file) {
         return res.status(400).json({ error: "Imagem não enviada." });
       }
@@ -315,7 +292,6 @@ userProfileRoutes.post(
             resolve(result);
           }
         );
-
         stream.end(file.buffer);
       });
 
@@ -342,7 +318,6 @@ userProfileRoutes.post(
 
       // Cleanup do avatar antigo
       const oldPublicId = extractPublicIdFromCloudinaryUrl(currentUser?.avatar);
-
       if (oldPublicId) {
         try {
           await cloudinary.uploader.destroy(oldPublicId, {
@@ -359,17 +334,14 @@ userProfileRoutes.post(
       });
     } catch (err: any) {
       console.error("Erro ao salvar avatar:", err);
-
       if (err?.message?.includes("Formato inválido")) {
         return res.status(400).json({ error: err.message });
       }
-
       if (err?.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           error: "A imagem deve ter no máximo 5MB.",
         });
       }
-
       return res.status(500).json({
         error: "Erro ao atualizar avatar.",
       });
@@ -377,9 +349,7 @@ userProfileRoutes.post(
   }
 );
 
-// =======================================================
-// ROTA: EXCLUIR AVATAR DO USUÁRIO
-// =======================================================
+
 userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => {
   try {
     const currentUser = await prisma.user.findUnique({
@@ -393,7 +363,6 @@ userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => 
     });
 
     const oldPublicId = extractPublicIdFromCloudinaryUrl(currentUser?.avatar);
-
     if (oldPublicId) {
       try {
         await cloudinary.uploader.destroy(oldPublicId, {
@@ -426,7 +395,8 @@ userProfileRoutes.patch(
   async (req, res) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      const { matricula } = req.body; 
+      const { matricula } = req.body;
+
       const isIfmaMode = process.env.IFMA_MODE === "true";
 
       const docFrontFile = files?.documentFront?.[0];
@@ -435,13 +405,11 @@ userProfileRoutes.patch(
       const selfieFile = files?.selfieWithId?.[0];
       const enrollmentFile = files?.enrollmentProof?.[0];
 
-      // Validações de envio dependendo do modo
       if (!docFrontFile || !docBackFile) {
         return res.status(400).json({ error: "Frente e verso do documento são obrigatórios." });
       }
 
       if (isIfmaMode) {
-        // 👇 Não exige mais a matrícula, pois o utilizador já a forneceu no registo!
         if (!enrollmentFile) {
           return res.status(400).json({ error: "O comprovante do SUAP é obrigatório." });
         }
@@ -467,7 +435,7 @@ userProfileRoutes.patch(
           const stream = cloudinary.uploader.upload_stream(
             {
               folder: "ludus/documents",
-              resource_type: "auto", // 👇 MUDADO PARA AUTO (Essencial para aceitar PDFs além de Imagens)
+              resource_type: "auto", 
               public_id: publicId,
               overwrite: true,
               transformation: [{ quality: "auto", fetch_format: "auto" }],
@@ -486,14 +454,12 @@ userProfileRoutes.patch(
         rejectReason: null, 
       };
 
-      // Se a app ainda assim enviar a matrícula por algum motivo, ele atualiza, senão ignora.
       if (isIfmaMode && matricula) {
         updateData.matricula = String(matricula).trim();
       }
 
       const oldFilesToDelete: string[] = [];
 
-      // Uploads Condicionais
       if (docFrontFile) {
         const result = await uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`);
         updateData.documentFrontImage = result.secure_url;
@@ -524,7 +490,6 @@ userProfileRoutes.patch(
         if (currentUser?.enrollmentProof) oldFilesToDelete.push(currentUser.enrollmentProof);
       }
 
-      // Atualiza o banco de dados
       const updatedUser = await prisma.user.update({
         where: { id: req.user.id },
         data: updateData,
@@ -536,7 +501,6 @@ userProfileRoutes.patch(
         },
       });
 
-      // CLEANUP Cloudinary
       for (const oldUrl of oldFilesToDelete) {
         const publicId = extractPublicIdFromCloudinaryUrl(oldUrl);
         if (publicId) {
@@ -552,7 +516,6 @@ userProfileRoutes.patch(
         message: "Documentos atualizados com sucesso!",
         user: updatedUser,
       });
-
     } catch (err: any) {
       console.error("Erro ao processar documentos:", err);
       if (err?.code === "LIMIT_FILE_SIZE") {
