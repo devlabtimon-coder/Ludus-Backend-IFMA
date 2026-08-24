@@ -15,15 +15,20 @@ export class MechanicController {
         orderBy: { namePt: 'asc' }
       });
 
-      const mechanicsWithGames = await Promise.all(
-        mechanics.map(async (m) => {
-          const games = await prisma.game.findMany({
-            where: { mechanics: { has: m.namePt } },
-            select: { id: true, title: true }
-          });
-          return { ...m, games: games.map(g => g.title) }; 
-        })
-      );
+      const allGames = await prisma.game.findMany({
+        select: { id: true, title: true, mechanics: true }
+      });
+
+      const mechanicsWithGames = mechanics.map((m) => {
+        const targetName = m.namePt.trim().toLowerCase();
+
+        const linkedGames = allGames.filter((g) => {
+          if (!g.mechanics || g.mechanics.length === 0) return false;
+          return g.mechanics.some(gameMec => gameMec.trim().toLowerCase() === targetName);
+        });
+
+        return { ...m, games: linkedGames.map(g => g.title) }; 
+      });
 
       return res.json(mechanicsWithGames);
     } catch (error) {
@@ -38,15 +43,20 @@ export class MechanicController {
         orderBy: { namePt: 'asc' }
       });
 
-      const mechanicsWithGames = await Promise.all(
-        mechanics.map(async (m) => {
-          const games = await prisma.game.findMany({
-            where: { mechanics: { has: m.namePt } },
-            select: { id: true, title: true }
-          });
-          return { ...m, games: games.map(g => g.title) }; 
-        })
-      );
+      const allGames = await prisma.game.findMany({
+        select: { id: true, title: true, mechanics: true }
+      });
+
+      const mechanicsWithGames = mechanics.map((m) => {
+        const targetName = m.namePt.trim().toLowerCase();
+
+        const linkedGames = allGames.filter((g) => {
+          if (!g.mechanics || g.mechanics.length === 0) return false;
+          return g.mechanics.some(gameMec => gameMec.trim().toLowerCase() === targetName);
+        });
+
+        return { ...m, games: linkedGames.map(g => g.title) }; 
+      });
 
       return res.json(mechanicsWithGames);
     } catch (error) {

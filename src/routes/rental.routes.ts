@@ -73,11 +73,36 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
 
       const user = await tx.user.findUnique({
         where: { id: userId },
-        select: { id: true, clientCategory: true },
+        
+        select: { 
+          id: true, 
+          clientCategory: true,
+          registrationStatus: true,
+          isAcademicVerified: true 
+        },
       });
 
       if (!user) {
         return { status: 404, body: { error: "Usuário não encontrado" } } as const;
+      }
+
+     
+      const isIfmaMode = process.env.IFMA_MODE === "true" || process.env.EXPO_PUBLIC_IFMA_MODE === "true";
+      
+      if (isIfmaMode) {
+        if (!user.isAcademicVerified) {
+          return {
+            status: 403,
+            body: { error: "Vínculo acadêmico não verificado.", code: "ACCOUNT_PENDING" },
+          } as const;
+        }
+      } else {
+        if (user.registrationStatus !== "APPROVED") {
+          return {
+            status: 403,
+            body: { error: "Sua conta ainda não foi aprovada para aluguéis.", code: "ACCOUNT_PENDING" },
+          } as const;
+        }
       }
 
       if (user.clientCategory === "STARTER") {

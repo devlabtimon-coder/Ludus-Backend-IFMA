@@ -11,23 +11,19 @@ function gen6() {
 }
 
 export function startRegistrationReminderJob() {
-  // Roda todos os dias às 10:00 da manhã
-  // Você pode alterar o cron "0 10 * * *" para a frequência que desejar
+
   cron.schedule("0 10 * * *", async () => {
     const now = new Date();
 
-    // ========================================================
-    // 1. LEMBRETE PUSH: Contas criadas que faltam etapas (Telefone / SUAP)
-    // ========================================================
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     const incompleteUsers = await prisma.user.findMany({
       where: {
         OR: [
           { phoneVerified: false },
-          { isAcademicVerified: false } // Remove esta linha se IFMA mode estiver desativado no BD
+          { isAcademicVerified: false } 
         ],
-        // Filtra os criados nos últimos 7 dias para não incomodar contas muito antigas e inativas
+       
         createdAt: {
           gte: sevenDaysAgo,
         }
@@ -41,21 +37,21 @@ export function startRegistrationReminderJob() {
 
       if (!user.phoneVerified) {
         title = "Verifique seu número 📱";
-        body = "Você precisa verificar seu telefone para conseguir alugar jogos.";
-        route = "/profile/account"; // Rota onde ele pode verificar o telefone
+        body = "Verifique seu número de telefone para deixar sua conta mais segura!";
+        route = "/profile/account"; 
       } else if (user.isAcademicVerified === false) {
         title = "Verificação Acadêmica 🎓";
         body = "Falta pouco! Vincule sua conta do SUAP para comprovar seu vínculo.";
         route = "/suap-verify";
       }
 
-      // Chave única para enviar apenas 1 notificação destas por dia por usuário
+     
       const dateString = now.toISOString().split("T")[0];
       const dedupeKey = `REMIND_REGISTRATION_${user.id}_${dateString}`;
 
       await notifyUser({
         userId: user.id,
-        type: "SYSTEM" as NotificationType, // Usa um tipo genérico ou crie um REGISTRATION_REMINDER no Prisma
+        type: "SYSTEM" as NotificationType, 
         title,
         body,
         channelId: "system",
@@ -64,17 +60,14 @@ export function startRegistrationReminderJob() {
       });
     }
 
-    // ========================================================
-    // 2. LEMBRETE E-MAIL: Abandonou no meio da verificação de código
-    // ========================================================
     const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     const pendingRegs = await prisma.pendingRegistration.findMany({
       where: {
-        // Pega registros com menos de 24h e mais de 2h
+        
         createdAt: { gte: twentyFourHoursAgo, lte: twoHoursAgo },
-        // Garante que não foi enviado nenhum email nas últimas 2 horas
+   
         lastEmailSentAt: { lte: twoHoursAgo }
       }
     });
@@ -86,7 +79,7 @@ export function startRegistrationReminderJob() {
         where: { id: pending.id },
         data: {
           emailVerificationCode: newCode,
-          emailCodeExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // expira em 10 min
+          emailCodeExpiresAt: new Date(Date.now() + 10 * 60 * 1000), 
           lastEmailSentAt: new Date(),
         }
       });
