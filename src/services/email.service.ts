@@ -21,7 +21,7 @@ function getHtmlTemplate(title: string, content: string) {
               
               <!-- HEADER LUDUS (COM LOGO) -->
               <tr>
-                <td style="background-color: #0A1F5C; padding: 32px 20px; text-align: center;">
+                <td style="background-color: #0A1F5C; padding: 42px 30px; text-align: center;">
                   <img 
                     src="https://res.cloudinary.com/dtbame6vb/image/upload/v1787669518/logo-full.png" 
                     alt="Logo Ludus" 
