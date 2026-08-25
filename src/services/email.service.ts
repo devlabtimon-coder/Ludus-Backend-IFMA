@@ -19,11 +19,16 @@ function getHtmlTemplate(title: string, content: string) {
           <td align="center">
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; background-color: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
               
-              <!-- HEADER LUDUS -->
+              <!-- HEADER LUDUS (COM LOGO) -->
               <tr>
                 <td style="background-color: #0A1F5C; padding: 32px 20px; text-align: center;">
-                  <h1 style="color: #FBBC04; margin: 0; font-size: 32px; letter-spacing: 2px;">LUDUS</h1>
-                  <p style="color: #D6DCFF; margin: 8px 0 0 0; font-size: 14px;">Acervo de Jogos de Tabuleiro</p>
+                  <img 
+                    src="https://res.cloudinary.com/dtbame6vb/image/upload/v1787669518/logo-full.png" 
+                    alt="Logo Ludus" 
+                    width="150" 
+                    style="display: block; margin: 0 auto; max-width: 100%; height: auto; outline: none; border: none;"
+                  />
+                  <p style="color: #D6DCFF; margin: 12px 0 0 0; font-size: 14px;">Acervo de Jogos de Tabuleiro</p>
                 </td>
               </tr>
 

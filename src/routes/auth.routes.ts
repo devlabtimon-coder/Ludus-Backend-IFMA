@@ -18,7 +18,7 @@ function cleanDigits(v: any) {
 }
 
 function isPendingExpired(createdAt: Date) {
-  const PENDING_TTL_MS = 24 * 60 * 60 * 1000;        // 🔥 Disparo do e-mail centralizado (Atualização de pendente)
+  const PENDING_TTL_MS = 24 * 60 * 60 * 1000;      
   return Date.now() - createdAt.getTime() > PENDING_TTL_MS;
 }
 
