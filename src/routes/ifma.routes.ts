@@ -1,13 +1,12 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken"; 
-import { Resend } from "resend";
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { verifySuapCredentials } from "../services/suap.service";
+import { sendVerificationEmail } from "../services/email.service";
 
 const router = Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 const IFMA_DOMAINS = ["@acad.ifma.edu.br", "@ifma.edu.br"];
 
@@ -247,6 +246,7 @@ router.post("/register", async (req, res) => {
         },
       });
 
+   
       await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
       return res.status(200).json({
@@ -275,6 +275,7 @@ router.post("/register", async (req, res) => {
         lastEmailSentAt: new Date(),
       },
     });
+
 
     await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
@@ -388,56 +389,5 @@ router.get("/status", ensureAuthenticated, async (req, res) => {
     return res.status(500).json({ error: "Erro interno." });
   }
 });
-
-async function sendVerificationEmail(
-  to: string,
-  name: string,
-  code: string
-): Promise<void> {
-  try {
-    await resend.emails.send({
-      from: process.env.RESEND_FROM!,
-      to: [to],
-      subject: "Código de verificação — Ludus IFMA",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
-          <div style="background: #04096E; padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
-            <h1 style="color: #FBBC04; margin: 0; font-size: 28px;">LUDUS</h1>
-            <p style="color: rgba(255,255,255,0.7); margin: 4px 0 0; font-size: 13px;">
-              Sistema de empréstimos — IFMA
-            </p>
-          </div>
-          <div style="background: #f9f9f9; padding: 28px; border-radius: 0 0 12px 12px;">
-            <p style="color: #333; font-size: 15px;">Olá, <strong>${name}</strong>!</p>
-            <p style="color: #555; font-size: 14px;">
-              Use o código abaixo para confirmar seu e-mail institucional:
-            </p>
-            <div style="
-              background: #fff;
-              border: 2px dashed #04096E;
-              border-radius: 12px;
-              padding: 20px;
-              text-align: center;
-              margin: 20px 0;
-            ">
-              <span style="
-                font-size: 36px;
-                font-weight: 700;
-                letter-spacing: 12px;
-                color: #04096E;
-              ">${code}</span>
-            </div>
-            <p style="color: #888; font-size: 12px; text-align: center;">
-              Este código expira em <strong>10 minutos</strong>.<br>
-              Se não foi você, ignore este e-mail.
-            </p>
-          </div>
-        </div>
-      `,
-    });
-  } catch (e) {
-    console.error("[IFMA] Falha ao enviar e-mail de verificação:", e);
-  }
-}
 
 export default router;

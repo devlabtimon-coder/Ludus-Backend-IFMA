@@ -1,15 +1,13 @@
 import jwt from "jsonwebtoken";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { Resend } from "resend";
 import { getAuth } from "firebase-admin/auth";
 
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle } from "../services/auth.service";
+import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
 
 const router = Router();
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 function gen6() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -20,7 +18,7 @@ function cleanDigits(v: any) {
 }
 
 function isPendingExpired(createdAt: Date) {
-  const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+  const PENDING_TTL_MS = 24 * 60 * 60 * 1000;        // 🔥 Disparo do e-mail centralizado (Atualização de pendente)
   return Date.now() - createdAt.getTime() > PENDING_TTL_MS;
 }
 
@@ -159,7 +157,6 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
-    // 🔥 CORREÇÃO: Ignora a validação de 6 caracteres se for login via Google
     if ((!senha || senha.length < 6) && !isGoogle) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
@@ -182,7 +179,6 @@ router.post("/register", async (req, res) => {
 
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
       
-      // 🔥 CORREÇÃO: Só gera o hash se a senha existir e for válida (>= 6 chars)
       const hash = (senha && senha.length >= 6) ? await bcrypt.hash(senha, 10) : null;
 
       if (user) {
@@ -302,25 +298,8 @@ router.post("/register", async (req, res) => {
           },
         });
 
-        try {
-          await resend.emails.send({
-            from: process.env.RESEND_FROM!,
-            to: [cleanEmail],
-            subject: "Seu novo código de verificação - Ludus",
-            html: `
-              <div style="font-family: Arial, sans-serif;">
-                <h2>Verificação de e-mail</h2>
-                <p>Seu novo código é:</p>
-                <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700;">
-                  ${emailCode}
-                </div>
-                <p>Esse código expira em 10 minutos.</p>
-              </div>
-            `,
-          });
-        } catch (e) {
-          console.log("Falha ao enviar e-mail (Resend):", e);
-        }
+
+        await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
         return res.status(200).json({
           message: "Cadastro pendente atualizado. Enviamos um novo código por e-mail.",
@@ -349,25 +328,8 @@ router.post("/register", async (req, res) => {
       },
     });
 
-    try {
-      await resend.emails.send({
-        from: process.env.RESEND_FROM!,
-        to: [cleanEmail],
-        subject: "Código de verificação - Ludus",
-        html: `
-          <div style="font-family: Arial, sans-serif;">
-            <h2>Verificação de e-mail</h2>
-            <p>Seu código é:</p>
-            <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700;">
-              ${emailCode}
-            </div>
-            <p>Esse código expira em 10 minutos.</p>
-          </div>
-        `,
-      });
-    } catch (e) {
-      console.log("Falha ao enviar e-mail (Resend):", e);
-    }
+
+    await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail.",
@@ -516,29 +478,11 @@ router.post("/resend-email-code", async (req, res) => {
     },
   });
 
-  try {
-    await resend.emails.send({
-      from: process.env.RESEND_FROM!,
-      to: [cleanEmail],
-      subject: "Novo código de verificação - Ludus",
-      html: `
-        <div style="font-family: Arial, sans-serif;">
-          <h2>Novo código</h2>
-          <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700;">
-            ${emailCode}
-          </div>
-          <p>Esse código expira em 10 minutos.</p>
-        </div>
-      `,
-    });
-  } catch (e) {
-    console.log("Falha ao enviar e-mail (Resend):", e);
-  }
+
+  await sendVerificationEmail(cleanEmail, pending.name, emailCode);
 
   return res.json({ message: "Novo código enviado por e-mail!" });
 });
-
-
 
 router.post("/verify-phone", async (req, res) => {
   const { idToken } = req.body;
@@ -556,9 +500,7 @@ router.post("/verify-phone", async (req, res) => {
       return res.status(400).json({ error: "Token não contém um número de telefone." });
     }
 
-
     const cleanPhone = firebasePhone.replace("+55", "").replace(/\D/g, "");
-
     
     const pending = await prisma.pendingRegistration.findFirst({
       where: { phone: cleanPhone },
@@ -569,7 +511,6 @@ router.post("/verify-phone", async (req, res) => {
         where: { id: pending.id },
         data: { phoneVerified: true },
       });
-
 
       if (updatedPending.emailVerified) {
         const createdUser = await prisma.user.create({
@@ -604,7 +545,6 @@ router.post("/verify-phone", async (req, res) => {
       });
     }
 
-  
     const user = await prisma.user.findFirst({
       where: { phone: cleanPhone },
     });
@@ -632,7 +572,6 @@ router.post("/verify-phone", async (req, res) => {
   }
 });
 
-
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
   const cleanEmail = (email || "").trim().toLowerCase();
@@ -643,7 +582,6 @@ router.post("/forgot-password", async (req, res) => {
 
   try {
     const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-
   
     if (!user) {
       return res.status(200).json({
@@ -651,7 +589,6 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
- 
     if (user.lastEmailSentAt) {
       const elapsed = Date.now() - user.lastEmailSentAt.getTime();
       const waitMs = 30_000 - elapsed;
@@ -667,7 +604,7 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     const code = gen6();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); 
 
     await prisma.user.update({
       where: { id: user.id },
@@ -678,27 +615,8 @@ router.post("/forgot-password", async (req, res) => {
       },
     });
 
-    try {
-      await resend.emails.send({
-        from: process.env.RESEND_FROM!,
-        to: [cleanEmail],
-        subject: "Redefinição de senha - Ludus",
-        html: `
-          <div style="font-family: Arial, sans-serif;">
-            <h2>Redefinição de senha</h2>
-            <p>Recebemos uma solicitação para redefinir a senha da sua conta Ludus.</p>
-            <p>Use o código abaixo:</p>
-            <div style="font-size: 32px; letter-spacing: 8px; font-weight: 700; margin: 16px 0;">
-              ${code}
-            </div>
-            <p>Este código expira em <strong>10 minutos</strong>.</p>
-            <p>Se você não solicitou isso, ignore este e-mail.</p>
-          </div>
-        `,
-      });
-    } catch (e) {
-      console.log("Falha ao enviar e-mail de redefinição (Resend):", e);
-    }
+   
+    await sendPasswordResetEmail(cleanEmail, code);
 
     return res.status(200).json({
       message: "Se este e-mail estiver cadastrado, você receberá um código.",
@@ -708,7 +626,6 @@ router.post("/forgot-password", async (req, res) => {
     return res.status(500).json({ error: "Erro ao processar solicitação." });
   }
 });
-
 
 router.post("/forgot-password/verify", async (req, res) => {
   const { email, code } = req.body;
@@ -739,13 +656,11 @@ router.post("/forgot-password/verify", async (req, res) => {
       return res.status(400).json({ error: "Código expirado. Solicite um novo." });
     }
 
-
     const resetToken = jwt.sign(
       { purpose: "password_reset" },
       process.env.JWT_SECRET || "secret_fallback",
       { subject: user.id, expiresIn: "5m" }
     );
-
 
     await prisma.user.update({
       where: { id: user.id },

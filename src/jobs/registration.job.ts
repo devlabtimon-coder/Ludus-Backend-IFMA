@@ -2,9 +2,7 @@ import cron from "node-cron";
 import { NotificationType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { notifyUser } from "../services/notify.service";
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendRegistrationReminderEmail } from "../services/email.service";
 
 function gen6() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -84,26 +82,7 @@ export function startRegistrationReminderJob() {
         }
       });
 
-      try {
-        await resend.emails.send({
-          from: process.env.RESEND_FROM!,
-          to: [pending.email],
-          subject: "Você está quase lá! - Ludus 🎲",
-          html: `
-            <div style="font-family: Arial, sans-serif;">
-              <h2>Falta muito pouco, ${pending.name}!</h2>
-              <p>Vimos que você começou a criar uma conta na Ludus, mas não finalizou.</p>
-              <p>Volte no aplicativo e utilize o código abaixo para concluir seu cadastro:</p>
-              <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700; color: #31358B;">
-                ${newCode}
-              </div>
-              <p>Esse código expira em 10 minutos. Te esperamos por lá!</p>
-            </div>
-          `,
-        });
-      } catch (e) {
-        console.error("Falha ao enviar e-mail de lembrete de cadastro:", e);
-      }
+      await sendRegistrationReminderEmail(pending.email, pending.name, newCode);
     }
   });
 }
