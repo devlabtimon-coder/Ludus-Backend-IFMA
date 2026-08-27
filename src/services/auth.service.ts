@@ -21,7 +21,6 @@ type AuthUserResponse = {
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
-
   isAcademicVerified: boolean;
   matricula: string | null;
 };
@@ -43,7 +42,6 @@ function buildUserResponse(user: {
   rejectReason: string | null;
   documentFrontImage: string | null;
   addressProof: string | null;
-
   isAcademicVerified?: boolean | null;
   matricula?: string | null;
 }): AuthUserResponse {
@@ -124,8 +122,6 @@ export async function login(emailOrPhone: string, senha: string) {
 const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
 
 export async function loginWithGoogle(idToken: string) {
-  console.log("Token recebido na API:", idToken?.substring(0, 50));
-
   if (!process.env.GOOGLE_WEB_CLIENT_ID) {
     throw new Error("GOOGLE_WEB_CLIENT_ID não configurado no servidor.");
   }
@@ -137,7 +133,6 @@ export async function loginWithGoogle(idToken: string) {
       audience: process.env.GOOGLE_WEB_CLIENT_ID,
     });
   } catch (error: any) {
-    console.error("Falha ao comunicar com os servidores do Google:", error.message);
     throw new Error("Não foi possível validar o Google no momento. Verifique sua conexão e tente novamente.");
   }
 
