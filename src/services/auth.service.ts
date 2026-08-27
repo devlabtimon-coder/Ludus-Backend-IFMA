@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { OAuth2Client } from "google-auth-library";
+import axios from "axios";
 import { prisma } from "../lib/prisma";
 
 type AuthUserResponse = {
@@ -119,26 +119,20 @@ export async function login(emailOrPhone: string, senha: string) {
   };
 }
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
-
-export async function loginWithGoogle(idToken: string) {
-  if (!process.env.GOOGLE_WEB_CLIENT_ID) {
-    throw new Error("GOOGLE_WEB_CLIENT_ID não configurado no servidor.");
+export async function loginWithGoogle(token: string) {
+  if (!token) {
+    throw new Error("Token não fornecido.");
   }
 
-  let ticket;
+  let payload: { email?: string; name?: string; sub?: string; picture?: string };
+
   try {
-    ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+    const { data } = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${token}` }
     });
-  } catch (error: any) {
+    payload = data;
+  } catch {
     throw new Error("Não foi possível validar o Google no momento. Verifique sua conexão e tente novamente.");
-  }
-
-  const payload = ticket.getPayload();
-  if (!payload) {
-    throw new Error("Token inválido ou vazio fornecido pelo Google.");
   }
 
   const email = payload.email?.toLowerCase().trim();
@@ -183,10 +177,10 @@ export async function loginWithGoogle(idToken: string) {
     };
   }
 
-  const token = signUserToken(user.id, user.role);
+  const jwtToken = signUserToken(user.id, user.role);
 
   return {
-    token,
+    token: jwtToken,
     user: buildUserResponse(user),
     needsPhoneVerification: !!user.phone && !user.phoneVerified,
   };

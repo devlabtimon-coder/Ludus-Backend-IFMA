@@ -2,7 +2,6 @@ import jwt from "jsonwebtoken";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { getAuth } from "firebase-admin/auth";
-
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle } from "../services/auth.service";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
@@ -94,18 +93,16 @@ router.post("/login", async (req, res) => {
 });
 
 router.post("/google", async (req, res) => {
-  const { idToken } = req.body;
+  const token = req.body.token || req.body.idToken;
 
-  if (!idToken) {
-    return res.status(400).json({ error: "idToken é obrigatório" });
+  if (!token) {
+    return res.status(400).json({ error: "Token é obrigatório" });
   }
 
   try {
-    const result = await loginWithGoogle(idToken);
+    const result = await loginWithGoogle(token);
     return res.json(result);
   } catch (err: any) {
-    console.error("ERRO /auth/google:", err);
-
     const prismaCode = err?.code;
     const msg = err?.message || "Falha ao autenticar com Google";
 
@@ -298,7 +295,6 @@ router.post("/register", async (req, res) => {
           },
         });
 
-
         await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
         return res.status(200).json({
@@ -328,14 +324,12 @@ router.post("/register", async (req, res) => {
       },
     });
 
-
     await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail.",
     });
   } catch (err: any) {
-    console.log("ERRO REGISTER:", err);
     return res.status(400).json({ error: err.message || "Erro ao iniciar cadastro" });
   }
 });
@@ -478,7 +472,6 @@ router.post("/resend-email-code", async (req, res) => {
     },
   });
 
-
   await sendVerificationEmail(cleanEmail, pending.name, emailCode);
 
   return res.json({ message: "Novo código enviado por e-mail!" });
@@ -492,7 +485,6 @@ router.post("/verify-phone", async (req, res) => {
   }
 
   try {
-   
     const decodedToken = await getAuth().verifyIdToken(idToken);
     const firebasePhone = decodedToken.phone_number;
 
@@ -567,7 +559,6 @@ router.post("/verify-phone", async (req, res) => {
     });
 
   } catch (err: any) {
-    console.error("ERRO /verify-phone Firebase:", err);
     return res.status(401).json({ error: "Sessão de verificação inválida ou expirada." });
   }
 });
@@ -615,14 +606,12 @@ router.post("/forgot-password", async (req, res) => {
       },
     });
 
-   
     await sendPasswordResetEmail(cleanEmail, code);
 
     return res.status(200).json({
       message: "Se este e-mail estiver cadastrado, você receberá um código.",
     });
   } catch (err) {
-    console.error("ERRO /forgot-password:", err);
     return res.status(500).json({ error: "Erro ao processar solicitação." });
   }
 });
@@ -672,7 +661,6 @@ router.post("/forgot-password/verify", async (req, res) => {
 
     return res.json({ resetToken });
   } catch (err) {
-    console.error("ERRO /forgot-password/verify:", err);
     return res.status(500).json({ error: "Erro ao verificar código." });
   }
 });
@@ -717,7 +705,6 @@ router.post("/forgot-password/reset", async (req, res) => {
 
     return res.json({ message: "Senha redefinida com sucesso!" });
   } catch (err) {
-    console.error("ERRO /forgot-password/reset:", err);
     return res.status(500).json({ error: "Erro ao redefinir senha." });
   }
 });
