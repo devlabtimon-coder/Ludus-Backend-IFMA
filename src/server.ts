@@ -23,6 +23,7 @@ import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
 import { mechanicRoutes } from './routes/mechanic.routes';
+import { seasonRoutes } from "./routes/season.routes";
 
 const credentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
@@ -70,6 +71,7 @@ app.use("/engagement", engagementRoutes);
 app.use("/users", pushTokenRoutes);
 app.use("/users", userProfileRoutes);
 app.use("/categories", categoryRoutes);
+app.use("/admin/seasons", seasonRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/admin/users", adminUserRoutes);
 
