@@ -127,12 +127,21 @@ export async function loginWithGoogle(token: string) {
   let payload: { email?: string; name?: string; sub?: string; picture?: string };
 
   try {
-    const { data } = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${token}` }
+    
+    const { data } = await axios.get(`https://oauth2.googleapis.com/tokeninfo`, {
+      params: { id_token: token }
     });
     payload = data;
-  } catch {
-    throw new Error("Não foi possível validar o Google no momento. Verifique sua conexão e tente novamente.");
+  } catch (err) {
+
+    try {
+      const { data } = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      payload = data;
+    } catch (innerErr) {
+      throw new Error("Não foi possível validar o Google no momento. Verifique sua conexao e tente novamente.");
+    }
   }
 
   const email = payload.email?.toLowerCase().trim();
@@ -140,6 +149,7 @@ export async function loginWithGoogle(token: string) {
     throw new Error("A sua conta Google não forneceu um e-mail válido.");
   }
 
+  
   if (!email.endsWith("@ifma.edu.br") && !email.endsWith("@acad.ifma.edu.br")) {
     throw new Error("Apenas e-mails institucionais do IFMA são permitidos.");
   }
@@ -178,7 +188,6 @@ export async function loginWithGoogle(token: string) {
   }
 
   const jwtToken = signUserToken(user.id, user.role);
-
   return {
     token: jwtToken,
     user: buildUserResponse(user),
