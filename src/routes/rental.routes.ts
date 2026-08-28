@@ -16,7 +16,6 @@ import {
 
 export const rentalRoutes = Router();
 
-
 function getBrtDate(date: Date) {
   return new Date(date.getTime() - 3 * 60 * 60 * 1000);
 }
@@ -24,7 +23,6 @@ function getBrtDate(date: Date) {
 function toBrtDateString(brtDate: Date) {
   return `${brtDate.getUTCFullYear()}-${String(brtDate.getUTCMonth() + 1).padStart(2, "0")}-${String(brtDate.getUTCDate()).padStart(2, "0")}`;
 }
-
 
 rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const userId = req.user.id;
@@ -47,7 +45,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(400).json({ error: "Não é possível agendar reservas no passado." });
   }
 
- 
   const brtStart = getBrtDate(startDate);
   const brtEnd = getBrtDate(endDate);
 
@@ -65,7 +62,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(400).json({ error: "Horário de agendamento fora do funcionamento (08h às 19h)." });
   }
 
- 
   const holidays = await getHolidaysByYear(brtStart.getUTCFullYear());
   const startStr = toBrtDateString(brtStart);
   const endStr = toBrtDateString(brtEnd);
@@ -79,10 +75,8 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-
       const user = await tx.user.findUnique({
         where: { id: userId },
-        
         select: { 
           id: true, 
           clientCategory: true,
@@ -95,7 +89,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         return { status: 404, body: { error: "Usuário não encontrado" } } as const;
       }
 
-     
       const isIfmaMode = process.env.IFMA_MODE === "true" || process.env.EXPO_PUBLIC_IFMA_MODE === "true";
       
       if (isIfmaMode) {
@@ -142,7 +135,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         } as const;
       }
 
- 
       const game = await tx.game.findUnique({
         where: { id: String(gameId) },
         select: {
@@ -165,11 +157,9 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         }
       }
 
-   
       const availableCopies = await tx.gameCopy.findMany({
         where: { gameId: game.id, available: true }
       });
-
 
       const allActiveRentals = await tx.rental.findMany({
         where: {
@@ -179,7 +169,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         select: { copyId: true, startDate: true, endDate: true }
       });
 
-     
       const BUFFER_MS = 30 * 60 * 1000; 
       const requestedStartMs = startDate.getTime();
       const requestedEndMs = endDate.getTime();
@@ -188,7 +177,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         const rentalStartMs = rental.startDate.getTime();
         const rentalEndWithBufferMs = rental.endDate.getTime() + BUFFER_MS;
 
-       
         return requestedStartMs < rentalEndWithBufferMs && requestedEndMs > rentalStartMs;
       });
 
@@ -268,7 +256,6 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(500).json({ error: "Erro interno ao processar agendamento." });
   }
 });
-
 
 rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   try {
@@ -391,53 +378,6 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
   }
 });
 
-
-rentalRoutes.patch("/:id/finish", ensureAuthenticated, async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const rental = await prisma.rental.findUnique({
-      where: { id: String(id) },
-      include: {
-        game: { select: { tier: true } }
-      }
-    });
-
-    if (!rental) {
-      return res.status(404).json({ error: "Aluguel não encontrado" });
-    }
-
-    if (rental.status !== "ACTIVE") {
-      return res.status(409).json({
-        error: "Só pode finalizar aluguel ativo",
-      });
-    }
-
-    const isLate = new Date() > new Date(rental.endDate);
-
-    const updated = await prisma.rental.update({
-      where: { id: rental.id },
-      data: {
-        status: "RETURNED",
-        endDate: new Date(),
-      },
-    });
-
-    await incrementRentalCountAndMaybePromote(rental.userId);
-
-    try {
-      await applyRentalReturnPoints(rental.userId, rental.game?.tier || null, isLate);
-    } catch (pointsErr) {
-      console.error("Erro ao processar pontos de devolução:", pointsErr);
-    }
-
-    return res.json(updated);
-  } catch (err) {
-    console.error("Erro ao finalizar aluguel:", err);
-    return res.status(500).json({ error: "Erro ao finalizar aluguel" });
-  }
-});
-
 rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, res) => {
   const { gameId } = req.params;
   const { date } = req.query; 
@@ -471,7 +411,6 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
       return res.json({ availableSlots: [] }); 
     }
 
- 
     const startOfDay = new Date(`${date}T00:00:00-03:00`);
     const endOfDay = new Date(`${date}T23:59:59-03:00`);
     
