@@ -8,6 +8,19 @@ import { notifyUser } from "../services/notify.service";
 export const seasonRoutes = Router();
 
 
+export function parseQueryString(value: any): string | undefined {
+  if (Array.isArray(value)) return String(value[0]);
+  if (typeof value === 'string') return value;
+  return undefined;
+}
+
+export function parseQueryArray(value: any): string[] | undefined {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string') return [value];
+  return undefined;
+}
+
+
 const DEFAULT_REQUIREMENTS = {
   starter: { alugueisMinimos: 3, diasSemAtraso: 45, avaliacoesMinimas: 2, multasPendentes: 0 },
   family: { alugueisMinimos: 8, diasSemAtraso: 70, avaliacoesMinimas: 4, multasPendentes: 0 },
@@ -21,7 +34,6 @@ const DEFAULT_REWARDS = {
   expert: { cuponsGerados: [{ tipo: "percentual", valor: 25, descricao: "Cupom de 25% OFF" }] },
   ultragamer: { cuponsGerados: [{ tipo: "percentual", valor: 35, descricao: "Cupom de 35% OFF (VIP)" }] },
 };
-
 
 seasonRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
@@ -48,11 +60,38 @@ seasonRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
 
     return res.json(mapped);
   } catch (err) {
-    console.error("Erro ao listar temporadas:", err);
     return res.status(500).json({ error: "Erro ao listar temporadas" });
   }
 });
 
+seasonRoutes.get("/coupons", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  try {
+    const coupons = await prisma.coupon.findMany({
+      include: { 
+        user: { select: { name: true, clientCategory: true } }, 
+        season: { select: { name: true } } 
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const mapped = coupons.map(c => ({
+      id: c.id,
+      usuario: c.user.name,
+      nivel: c.user.clientCategory.toLowerCase(),
+      temporada: c.season?.name || 'Avulso',
+      codigo: c.code,
+      tipo: c.type === 'percentual' ? 'Percentual' : 'Valor Fixo',
+      valor: c.type === 'percentual' ? `${c.value}% OFF` : `R$ ${c.value} OFF`,
+      emitidoEm: c.createdAt.toISOString().split('T')[0],
+      expiraEm: c.expiresAt.toISOString().split('T')[0],
+      status: c.isUsed ? 'utilizado' : (new Date() > c.expiresAt ? 'expirado' : 'ativo')
+    }));
+
+    return res.json(mapped);
+  } catch (err) {
+    return res.status(500).json({ error: "Erro ao listar cupons" });
+  }
+});
 
 seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const { nome, dataInicio, dataFim, requisitos, recompensas } = req.body;
@@ -74,17 +113,20 @@ seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
 
     return res.status(201).json(season);
   } catch (err) {
-    console.error("Erro ao criar temporada:", err);
     return res.status(500).json({ error: "Erro ao criar temporada" });
   }
 });
 
-
 seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  const { id } = req.params;
+  
+  const seasonId = parseQueryString(req.params.id);
+  
+  if (!seasonId) {
+    return res.status(400).json({ error: "ID da temporada inválido ou ausente." });
+  }
 
   try {
-    const season = await prisma.season.findUnique({ where: { id } });
+    const season = await prisma.season.findUnique({ where: { id: seasonId } });
     if (!season) return res.status(404).json({ error: "Temporada não encontrada." });
 
     const requirements = season.requirements as Record<string, any>;
@@ -105,18 +147,15 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       where: { createdAt: { gte: season.startDate, lte: season.endDate } }
     });
 
-  
     const penalties = await prisma.userPointsLog.findMany({
       where: { points: { lt: 0 }, createdAt: { gte: season.startDate, lte: season.endDate } }
     });
-
 
     const generatedCoupons = await prisma.coupon.findMany({
       where: { seasonId: season.id }
     });
     const usersWithCoupons = new Set(generatedCoupons.map(c => c.userId));
 
-    
     const progressData = users.map(user => {
       const catKey = user.clientCategory.toLowerCase();
       const reqs = requirements[catKey] || requirements.starter;
@@ -129,14 +168,12 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       const avaliacoes = userRatings.length;
       const multas = userPenalties.length;
 
-      
       const diasSemAtraso = userRentals.reduce((acc, curr) => {
         const diffTime = Math.abs(curr.endDate.getTime() - curr.startDate.getTime());
         const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
         return acc + diffDays;
       }, 0);
 
-     
       let score = 0;
       if (alugueis >= reqs.alugueisMinimos) score += 40;
       else score += (alugueis / reqs.alugueisMinimos) * 40;
@@ -146,7 +183,6 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
 
       if (avaliacoes >= reqs.avaliacoesMinimas) score += 30;
       else score += (avaliacoes / reqs.avaliacoesMinimas) * 30;
-
 
       if (multas > reqs.multasPendentes) score = 0;
 
@@ -170,20 +206,22 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
 
     return res.json(progressData);
   } catch (err) {
-    console.error("Erro ao calcular progressão:", err);
-    return res.status(500).json({ error: "Erro interno" });
+    return res.status(500).json({ error: "Erro interno ao calcular progresso" });
   }
 });
 
-
 seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  const { id } = req.params;
+
+  const seasonId = parseQueryString(req.params.id);
+  
+  if (!seasonId) {
+    return res.status(400).json({ error: "ID da temporada inválido ou ausente." });
+  }
 
   try {
-    const season = await prisma.season.findUnique({ where: { id } });
+    const season = await prisma.season.findUnique({ where: { id: seasonId } });
     if (!season) return res.status(404).json({ error: "Temporada não encontrada." });
 
-   
     const { eligibleUserIds } = req.body; 
 
     if (!Array.isArray(eligibleUserIds) || eligibleUserIds.length === 0) {
@@ -198,7 +236,6 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
     });
 
     for (const user of users) {
-      
       const alreadyHas = await prisma.coupon.findFirst({
         where: { userId: user.id, seasonId: season.id }
       });
@@ -210,7 +247,6 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
 
       if (!userReward) continue;
 
-      
       const code = `${catKey.substring(0,3).toUpperCase()}-S${season.name.replace(/\D/g, '')}-${Math.random().toString(36).substring(2,6).toUpperCase()}`;
 
       await prisma.coupon.create({
@@ -225,7 +261,6 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
         }
       });
 
-      
       await notifyUser({
         userId: user.id,
         type: NotificationType.SYSTEM_ANNOUNCEMENT,
@@ -239,7 +274,6 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
 
     return res.json({ message: `${count} cupons gerados com sucesso!`, count });
   } catch (err) {
-    console.error("Erro ao gerar cupons:", err);
     return res.status(500).json({ error: "Erro ao gerar cupons." });
   }
 });
