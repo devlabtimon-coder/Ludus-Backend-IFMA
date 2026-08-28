@@ -113,15 +113,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  games         Game[]
-  rentals       Rental[]
-  ratings       GameRating[]
-  pointsLogs    UserPointsLog[]
-  favorites     Favorite[]
-  pushTokens    PushToken[]
-  notifications Notification[]
-
+  games                   Game[]
+  rentals                 Rental[]
+  ratings                 GameRating[]
+  pointsLogs              UserPointsLog[]
+  favorites               Favorite[]
+  pushTokens              PushToken[]
+  notifications           Notification[]
   gameAvailabilityWatches GameAvailabilityWatch[]
+  coupons                 Coupon[]
 }
 
 model Game {
@@ -143,24 +143,22 @@ model Game {
 
   tier GameTier @default(BRONZE)
 
-  minPlayers Int      @default(1)
+  minPlayers Int  @default(1)
   maxPlayers Int?
-  minAge     Int      @default(0)
-  minTime    Int      @default(0)
+  minAge     Int  @default(0)
+  minTime    Int  @default(0)
   maxTime    Int?
 
-  // Retornado para Array de Strings simples
-  mechanics  String[]
+  mechanics String[]
 
   userId String
   owner  User   @relation(fields: [userId], references: [id])
 
-  components GameComponent[]
-  rentals    Rental[]
-  ratings    GameRating[]
-  copies     GameCopy[]
-  favorites  Favorite[]
-
+  components              GameComponent[]
+  rentals                 Rental[]
+  ratings                 GameRating[]
+  copies                  GameCopy[]
+  favorites               Favorite[]
   gameAvailabilityWatches GameAvailabilityWatch[]
 
   @@index([title])
@@ -168,18 +166,15 @@ model Game {
 }
 
 model Mechanic {
-  id          String   @id @default(uuid())
-  namePt      String   @unique
-  nameEn      String?
-  category    String
-  definition  String   @db.Text
-  icon        String   
-  active      Boolean  @default(true)
-  
-  // Relação com Game removida daqui para total isolamento
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  namePt     String   @unique
+  nameEn     String?
+  category   String
+  definition String   @db.Text
+  icon       String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("mechanics")
 }
@@ -235,12 +230,12 @@ model GameCopy {
   available    Boolean @default(true)
   observations String? @db.Text
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isOriginal Boolean  @default(false)
 
-  isOriginal Boolean @default(false)
-  gameId     String
-  game       Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   rentals Rental[]
 
@@ -280,10 +275,10 @@ model GameAvailabilityWatch {
 }
 
 model Rental {
-  id                 String       @id @default(uuid())
-  startDate          DateTime
-  endDate            DateTime
-  status             RentalStatus @default(PENDING)
+  id        String       @id @default(uuid())
+  startDate DateTime
+  endDate   DateTime
+  status    RentalStatus @default(PENDING)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -326,7 +321,6 @@ model Notification {
   data      Json?
   readAt    DateTime?
   createdAt DateTime         @default(now())
-
   dedupeKey String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -365,4 +359,44 @@ model PendingRegistration {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Season {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+
+  requirements Json?
+  rewards      Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coupons Coupon[]
+}
+
+model Coupon {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  type        String
+  value       Float
+  description String?
+
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  seasonId String?
+  season   Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([seasonId])
+  @@index([code])
 }
