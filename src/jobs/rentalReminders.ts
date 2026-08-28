@@ -24,8 +24,10 @@ function addDays(d: Date, days: number) {
 }
 
 export function startRentalReminderJob() {
+  
   cron.schedule("0 * * * *", async () => {
     const now = new Date();
+
 
     const tomorrow = addDays(now, 1);
     const in24hStart = startOfDay(tomorrow);
@@ -60,6 +62,7 @@ export function startRentalReminderJob() {
       });
     }
 
+
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
 
@@ -92,6 +95,7 @@ export function startRentalReminderJob() {
       });
     }
 
+   
     const overdue = await prisma.rental.findMany({
       where: {
         status: RentalStatus.ACTIVE,
@@ -121,10 +125,13 @@ export function startRentalReminderJob() {
       });
     }
 
+   
+    const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
     const noShows = await prisma.rental.findMany({
       where: {
         status: RentalStatus.PENDING,
-        endDate: { lt: now },
+        startDate: { lt: thirtyMinutesAgo }, 
       },
       select: {
         id: true,
@@ -162,17 +169,19 @@ export function startRentalReminderJob() {
         console.error("Erro ao aplicar penalidade de no-show:", err);
       }
 
+      
       const gameTitle = r.game?.title || r.gameTitleSnapshot;
       await notifyUser({
         userId: r.userId,
         type: "SYSTEM_ANNOUNCEMENT" as NotificationType,
-        title: "Reserva Cancelada 🚫",
-        body: `Sua reserva de "${gameTitle}" foi cancelada por não comparecimento no prazo.`,
+        title: "Reserva Cancelada por Não Comparecimento 🚫",
+        body: `Sua reserva de "${gameTitle}" foi cancelada automaticamente pois não foi retirada no horário agendado.`,
         channelId: "rentals",
         data: { route: "/rentals", rentalId: r.id },
         dedupeKey: `RENTAL_NOSHOW:${r.id}`,
       });
 
+      
       if (r.gameId) {
         try {
           await notifyGameBackAvailable(r.gameId);
