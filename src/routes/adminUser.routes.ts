@@ -1,14 +1,13 @@
 import { Router } from "express";
-import { NotificationType } from "@prisma/client"; // Adicionado para as notificações
+import { NotificationType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureAdmin } from "../middlewares/ensureAdmin";
 import { ensureString } from "../utils/params";
-import { notifyUser } from "../services/notify.service"; // Importando serviço de notificação[cite: 1]
+import { notifyUser } from "../services/notify.service";
 
 export const adminUserRoutes = Router();
 
-// Bloquear ou Desbloquear usuário
 adminUserRoutes.patch("/:id/block", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id); 
   const { isBlocked } = req.body;
@@ -36,9 +35,6 @@ adminUserRoutes.patch("/:id/block", ensureAuthenticated, ensureAdmin, async (req
   }
 });
 
-// ==========================================
-// MODO IFMA: Aprovação Acadêmica (SUAP)
-// ==========================================
 adminUserRoutes.patch("/:id/verify-academic", ensureAuthenticated, ensureAdmin, async (req, res) => {
   if (process.env.IFMA_MODE !== "true") {
     return res.status(403).json({ error: "Funcionalidade disponível apenas no Modo IFMA." });
@@ -62,11 +58,6 @@ adminUserRoutes.patch("/:id/verify-academic", ensureAuthenticated, ensureAdmin, 
   }
 });
 
-// ==========================================
-// MODO PADRÃO & IFMA: Aprovação de Documentos
-// ==========================================
-
-// Aprovar Documentos
 adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id);
   if (!id) return res.status(400).json({ error: "ID do usuário é obrigatório." });
@@ -82,7 +73,6 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
       rejectReason: null 
     };
 
-    // Se estiver no IFMA, a aprovação manual dos documentos já serve como validação acadêmica!
     if (isIfmaMode) {
       updateData.isAcademicVerified = true;
       updateData.academicVerifiedAt = new Date();
@@ -108,7 +98,6 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
   }
 });
 
-// Rejeitar Documentos
 adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id);
   const { reason } = req.body;
@@ -153,14 +142,12 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
     return res.status(500).json({ error: "Erro interno ao rejeitar documentos." });
   }
 });
-// ==========================================
-// LISTAR TODOS OS USUÁRIOS (COM DOCUMENTOS)
-// ==========================================
+
 adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: {
-        createdAt: 'desc', // Mostra os cadastros mais recentes primeiro
+        createdAt: 'desc',
       },
       select: {
         id: true,
@@ -172,19 +159,18 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         createdAt: true,
         selfieWithId: true,
         enrollmentProof: true,
-        
-        // 👇 NOVOS CAMPOS ADICIONADOS AQUI 👇
         cpf: true,
         address: true,
-        avatar: true,  // Adicionado para carregar a foto de perfil
-        picture: true, // Caso utilizes login do Google, a foto pode vir aqui
-        
-        // 👇 ESSES SÃO OS CAMPOS QUE FAZEM O PAINEL FUNCIONAR 👇
+        avatar: true,  
+        picture: true, 
         registrationStatus: true,
         documentFrontImage: true,
         documentBackImage: true,
         addressProof: true,
         rejectReason: true,
+        points: true,
+        totalRentalsCount: true,
+        clientCategory: true,
       }
     });
 
@@ -195,7 +181,6 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   }
 });
 
-// Solicitar reenvio de um documento específico
 adminUserRoutes.post("/:id/request-doc", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id);
   const { documentName } = req.body;
@@ -208,14 +193,13 @@ adminUserRoutes.post("/:id/request-doc", ensureAuthenticated, ensureAdmin, async
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
 
-    // Dispara a notificação pro celular do cliente
     await notifyUser({
       userId: id,
       type: NotificationType.VERIFY_REQUIRED,
       title: "Documento Pendente 📄",
       body: `Precisamos que você envie a foto de: ${documentName} para liberar seu cadastro.`,
       channelId: "system",
-      data: { route: "/profile/documents" } // Manda o cliente direto pra tela de documentos
+      data: { route: "/profile/documents" }
     });
 
     return res.json({ message: "Notificação enviada com sucesso!" });
