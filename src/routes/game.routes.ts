@@ -58,7 +58,6 @@ gameRoutes.get("/", async (req, res) => {
   const priceMax = Array.isArray(req.query.priceMax) ? req.query.priceMax[0] : req.query.priceMax;
   const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
   
- 
   const sortParam = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort;
   
   const tier = Array.isArray(req.query.tier) ? req.query.tier.join(",") : req.query.tier;
@@ -66,7 +65,6 @@ gameRoutes.get("/", async (req, res) => {
 
   let isAdmin = false;
   const authHeader = req.headers.authorization;
-
 
   if (authHeader) {
     const parts = authHeader.split(" ");
@@ -85,7 +83,6 @@ gameRoutes.get("/", async (req, res) => {
           }
         }
       } catch (e) {
-       
       }
     }
   }
@@ -148,10 +145,7 @@ gameRoutes.get("/", async (req, res) => {
 
   if (timeMax && String(timeMax) !== "null") {
     const time = Number(timeMax);
-    
-    
     if (!Number.isNaN(time) && time !== 999) {
-      
       where.maxTime = time; 
     }
   }
@@ -199,13 +193,11 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
-
   let orderByCondition: any = { title: "asc" }; 
 
   if (sortParam === "Z-A") {
     orderByCondition = { title: "desc" };
   } else if (sortParam === "TOP_RATED") {
-    
     orderByCondition = [{ rating: "desc" }, { ratingsCount: "desc" }, { title: "asc" }];
   }
 
@@ -214,13 +206,14 @@ gameRoutes.get("/", async (req, res) => {
       where,
       orderBy: orderByCondition, 
       include: {
-        _count: { select: { copies: true } },
+        _count: { select: { copies: true, rentals: true } },
         copies: { select: { available: true } },
       },
     });
 
     const mapped = games.map((g) => {
       const copiesCount = g._count?.copies ?? 0;
+      const rentalsCount = g._count?.rentals ?? 0;
       const availableCopiesCount = (g.copies ?? []).filter((c) => c.available).length;
 
       const isAvailableNow =
@@ -234,6 +227,7 @@ gameRoutes.get("/", async (req, res) => {
       return {
         ...rest,
         copiesCount,
+        rentalsCount,
         availableCopiesCount,
         isAvailableNow,
       };
@@ -305,18 +299,8 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         year: details?.yearPublished ?? null,
       });
 
-      console.log("BGG search result:", searchResult);
-
       if (searchResult && searchResult.confidence >= 85) {
         const bggDetails = await getBGGDetails(searchResult.id);
-
-        console.log("BGG details chosen:", {
-          searchedTitle: cleanTitle,
-          chosenId: searchResult.id,
-          chosenPrimaryName: searchResult.primaryName,
-          confidence: searchResult.confidence,
-          chosenYear: bggDetails?.yearPublished,
-        });
 
         if (bggDetails?.description?.trim()) {
           const translated = await translateToPT(bggDetails.description);
@@ -331,14 +315,8 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         finalMinAge = details?.minAge ?? bggDetails?.minAge ?? 0;
         finalMinTime = details?.minTime ?? bggDetails?.minTime ?? 0;
         finalMaxTime = details?.maxTime ?? bggDetails?.maxTime ?? null;
-      } else {
-        console.log("BGG ignorado por baixa confiança:", {
-          searchedTitle: cleanTitle,
-          confidence: searchResult?.confidence ?? null,
-        });
       }
     } catch (e) {
-      console.log("Erro ao enriquecer dados com BGG/tradução:", e);
     }
 
     const game = await prisma.game.create({
@@ -993,8 +971,6 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
       return res.status(404).json({ error: "Jogo não encontrado" });
     }
 
-    console.log(`[SYNC-DESC] Refazendo busca de tradução para: ${game.title}`);
-
     const searchResult = await searchBGG(game.title);
     if (searchResult) {
       const bggDetails = await getBGGDetails(searchResult.id);
@@ -1015,13 +991,10 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
     }
 
     return res.json({ description: "" });
-    
   } catch (error) {
-    console.error("Erro ao sincronizar descrição:", error);
     return res.status(500).json({ error: "Erro interno ao buscar descrição na API externa." });
   }
 });
-
 
 gameRoutes.post("/:id/sync-mechanics", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
@@ -1036,8 +1009,6 @@ gameRoutes.post("/:id/sync-mechanics", ensureAuthenticated, ensureAdmin, async (
       return res.status(400).json({ error: "Este jogo não possui ID da Ludopedia vinculado." });
     }
 
-    console.log(`[SYNC-MEC] Buscando mecânicas para: ${game.title}`);
-
     const ludoDetails = await getLudopediaGameDetails(game.ludopediaId);
     
     if (ludoDetails?.mechanics && ludoDetails.mechanics.length > 0) {
@@ -1049,9 +1020,7 @@ gameRoutes.post("/:id/sync-mechanics", ensureAuthenticated, ensureAdmin, async (
     }
 
     return res.status(404).json({ error: "Nenhuma mecânica encontrada para este jogo na Ludopedia." });
-    
   } catch (error) {
-    console.error("Erro ao sincronizar mecânicas:", error);
     return res.status(500).json({ error: "Erro interno ao buscar mecânicas na API externa." });
   }
 });
