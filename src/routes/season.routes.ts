@@ -75,23 +75,66 @@ seasonRoutes.get("/coupons", ensureAuthenticated, ensureAdmin, async (req, res) 
 });
 
 seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  const { nome, dataInicio, dataFim, recompensas } = req.body;
+  const { nome, dataInicio, dataFim, recompensas, overrideActive } = req.body;
+
   if (!nome || !dataInicio || !dataFim) {
     return res.status(400).json({ error: "Nome, data de início e fim são obrigatórios." });
   }
+  
   try {
+    const startDate = new Date(dataInicio);
+    const endDate = new Date(dataFim);
+    const now = new Date();
 
+    
+    if (startDate <= now) {
+      const existingActive = await prisma.season.findFirst({
+        where: {
+          startDate: { lte: now },
+          endDate: { gte: now }
+        }
+      });
+
+      if (existingActive && !overrideActive) {
+        return res.status(409).json({
+          error: `A "${existingActive.name}" está ativa no momento. Deseja encerrá-la e zerar os pontos de todos os alunos agora?`,
+          code: "ACTIVE_SEASON_EXISTS"
+        });
+      }
+    }
+
+    
     const season = await prisma.season.create({
       data: {
         name: nome,
-        startDate: new Date(dataInicio),
-        endDate: new Date(dataFim),
+        startDate,
+        endDate,
         rewards: recompensas || DEFAULT_REWARDS,
       }
     });
 
+   
+    if (startDate <= now) {
+      await prisma.season.updateMany({
+        where: {
+          id: { not: season.id },
+          startDate: { lte: now },
+          endDate: { gte: now }
+        },
+        data: { 
+          endDate: new Date(now.getTime() - 1000) 
+        } 
+      });
+
+      await prisma.user.updateMany({
+        where: { role: "USER" },
+        data: { points: 0, level: 1 }
+      });
+    }
+
     return res.status(201).json(season);
   } catch (err) {
+    console.error("Erro ao criar temporada:", err);
     return res.status(500).json({ error: "Erro ao criar temporada" });
   }
 });
