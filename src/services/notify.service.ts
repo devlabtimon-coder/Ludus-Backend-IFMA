@@ -34,11 +34,13 @@ export async function notifyUser(p: NotifyParams) {
     },
   });
 
-  
   const tokens = await prisma.pushToken.findMany({
     where: { userId: p.userId },
     select: { expoPushToken: true },
   });
+
+  // 🔍 LOG 1: Mostra quais tokens foram encontrados no banco para este usuário
+  console.log(`[PUSH DEBUG] Tokens encontrados para o usuário ${p.userId}:`, tokens);
 
   const messages = tokens
     .map((t) => t.expoPushToken)
@@ -52,13 +54,20 @@ export async function notifyUser(p: NotifyParams) {
       channelId: p.channelId ?? "default",
     }));
 
+  if (messages.length === 0) {
+    console.log(`[PUSH DEBUG] Nenhum token válido encontrado para o usuário ${p.userId}. O push foi abortado.`);
+    return;
+  }
+
   const chunks = expo.chunkPushNotifications(messages);
 
   for (const chunk of chunks) {
     try {
-      await expo.sendPushNotificationsAsync(chunk);
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      // 🔍 LOG 2: Confirma que o Expo recebeu e gerou os tickets
+      console.log("[PUSH DEBUG] Tickets do Expo enviados com sucesso:", tickets);
     } catch (e) {
-      console.error("push error:", e);
+      console.error("[PUSH ERROR] Erro ao enviar para o Expo:", e);
     }
   }
 }
