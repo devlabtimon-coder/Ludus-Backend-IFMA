@@ -22,6 +22,7 @@ import { categoryRoutes } from "./routes/category.routes";
 import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
+import { startSeasonJob } from "./jobs/season.job";
 import { mechanicRoutes } from './routes/mechanic.routes';
 import { seasonRoutes } from "./routes/season.routes";
 
@@ -40,6 +41,10 @@ if (!credentialsBase64) {
 }
 
 const app = express();
+
+startRentalReminderJob();
+startRegistrationReminderJob();
+startSeasonJob();
 
 startRentalReminderJob();
 startRegistrationReminderJob();
