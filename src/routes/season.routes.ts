@@ -262,3 +262,43 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
     return res.status(500).json({ error: "Erro ao gerar cupons." });
   }
 });
+
+seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  const seasonId = parseQueryString(req.params.id);
+  if (!seasonId) return res.status(400).json({ error: "ID da temporada inválido." });
+
+  try {
+    const season = await prisma.season.findUnique({ where: { id: seasonId } });
+    if (!season) return res.status(404).json({ error: "Temporada não encontrada." });
+
+    const users = await prisma.user.findMany({
+      where: { role: "USER", isBlocked: false },
+      select: { id: true, name: true, email: true, avatar: true, picture: true, clientCategory: true, totalRentalsCount: true }
+    });
+
+   
+    const logs = await prisma.userPointsLog.groupBy({
+      by: ['userId'],
+      where: {
+        createdAt: {
+          gte: season.startDate,
+          lte: season.endDate,
+        },
+      },
+      _sum: {
+        points: true,
+      },
+    });
+
+    const pointsMap = new Map(logs.map(l => [l.userId, l._sum.points || 0]));
+
+    const ranking = users.map(u => ({
+      ...u,
+      points: pointsMap.get(u.id) || 0,
+    })).sort((a, b) => b.points - a.points);
+
+    return res.json(ranking);
+  } catch (err) {
+    return res.status(500).json({ error: "Erro ao buscar ranking da temporada." });
+  }
+});
