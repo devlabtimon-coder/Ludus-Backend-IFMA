@@ -13,10 +13,13 @@ pushTokenRoutes.post("/me/push-token", ensureAuthenticated, async (req, res) => 
 
   try {
     
-    await prisma.pushToken.upsert({
-      where: { expoPushToken },
-      update: { userId: req.user.id },
-      create: {
+    await prisma.pushToken.deleteMany({
+      where: { userId: req.user.id }
+    });
+
+
+    await prisma.pushToken.create({
+      data: {
         expoPushToken,
         userId: req.user.id,
       },
