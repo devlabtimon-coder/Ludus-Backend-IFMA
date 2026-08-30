@@ -13,7 +13,6 @@ engagementRoutes.get("/leaderboard", ensureAuthenticated, async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 10, 50);
 
   const users = await prisma.user.findMany({
-    // 👇 Filtra para não mostrar os administradores do sistema no ranking
     where: { role: "USER" },
     orderBy: [{ points: "desc" }, { level: "desc" }, { name: "asc" }],
     take: limit,
@@ -24,6 +23,7 @@ engagementRoutes.get("/leaderboard", ensureAuthenticated, async (req, res) => {
       level: true,
       avatar: true,
       picture: true,
+      clientCategory: true,
     },
   });
 
@@ -37,6 +37,7 @@ engagementRoutes.get("/leaderboard", ensureAuthenticated, async (req, res) => {
       levelName: getLevelName(u.level),
       avatar: u.avatar,
       picture: u.picture,
+      category: u.clientCategory,
     }))
   );
 });
@@ -51,6 +52,7 @@ engagementRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       level: true,
       avatar: true,
       picture: true,
+      clientCategory: true,
     },
   });
 
@@ -58,12 +60,19 @@ engagementRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
-  // 👇 Conta apenas os alunos que estão acima
   const above = await prisma.user.count({
     where: { 
       role: "USER", 
       points: { gt: me.points } 
     },
+  });
+
+  const now = new Date();
+  const activeSeason = await prisma.season.findFirst({
+    where: {
+      startDate: { lte: now },
+      endDate: { gte: now }
+    }
   });
 
   return res.json({
@@ -75,6 +84,8 @@ engagementRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     rank: above + 1,
     avatar: me.avatar,
     picture: me.picture,
+    category: me.clientCategory,
+    seasonName: activeSeason?.name || null,
   });
 });
 
