@@ -14,9 +14,7 @@ export function parseQueryString(value: any): string | undefined {
   return undefined;
 }
 
-
 const MAX_SEASON_POINTS = 1500;
-
 
 const DEFAULT_REWARDS = {
   nivel2: { cuponsGerados: [{ tipo: "percentual", valor: 5, descricao: "Cupom 5% OFF - Nível 2" }] },
@@ -62,8 +60,8 @@ seasonRoutes.get("/coupons", ensureAuthenticated, ensureAdmin, async (req, res) 
       nivel: getLevelName(c.user.level), 
       temporada: c.season?.name || 'Avulso',
       codigo: c.code,
-      tipo: c.type === 'percentual' ? 'Percentual' : 'Valor Fixo',
-      valor: c.type === 'percentual' ? `${c.value}% OFF` : `R$ ${c.value} OFF`,
+      tipo: c.type === 'percentual' ? 'Percentual' : c.type === 'fixo' ? 'Valor Fixo' : 'Vale-Brinde',
+      valor: c.type === 'percentual' ? `${c.value}% OFF` : c.type === 'fixo' ? `R$ ${c.value} OFF` : 'Item Físico',
       emitidoEm: c.createdAt.toISOString().split('T')[0],
       expiraEm: c.expiresAt.toISOString().split('T')[0],
       status: c.isUsed ? 'utilizado' : (new Date() > c.expiresAt ? 'expirado' : 'ativo')
@@ -86,7 +84,6 @@ seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
     const endDate = new Date(dataFim);
     const now = new Date();
 
-    
     if (startDate <= now) {
       const existingActive = await prisma.season.findFirst({
         where: {
@@ -103,7 +100,6 @@ seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       }
     }
 
-    
     const season = await prisma.season.create({
       data: {
         name: nome,
@@ -113,7 +109,6 @@ seasonRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       }
     });
 
-   
     if (startDate <= now) {
       await prisma.season.updateMany({
         where: {
@@ -152,7 +147,6 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       select: { id: true, name: true, level: true, points: true, clientCategory: true }
     });
 
-  
     const rentals = await prisma.rental.findMany({
       where: { status: "RETURNED", endDate: { gte: season.startDate, lte: season.endDate } }
     });
@@ -164,7 +158,6 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
     });
     const usersWithCoupons = new Set(generatedCoupons.map(c => c.userId));
 
-   
     const progressData = users.map(user => {
       const userRentals = rentals.filter(r => r.userId === user.id);
       const multas = penalties.filter(p => p.userId === user.id).length;
@@ -175,7 +168,6 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
         return acc + Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       }, 0);
 
-     
       const pct = Math.min(100, Math.round((user.points / MAX_SEASON_POINTS) * 100));
 
       return {
@@ -227,7 +219,6 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
       });
       if (alreadyHas) continue;
 
-      
       const levelKey = `nivel${user.level}`;
       const userReward = rewards[levelKey]?.cuponsGerados?.[0]; 
 
@@ -276,7 +267,6 @@ seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, r
       select: { id: true, name: true, email: true, avatar: true, picture: true, clientCategory: true, totalRentalsCount: true }
     });
 
-   
     const logs = await prisma.userPointsLog.groupBy({
       by: ['userId'],
       where: {
