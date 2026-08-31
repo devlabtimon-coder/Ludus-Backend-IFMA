@@ -302,3 +302,41 @@ seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, r
     return res.status(500).json({ error: "Erro ao buscar ranking da temporada." });
   }
 });
+
+seasonRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  const seasonId = parseQueryString(req.params.id);
+  if (!seasonId) return res.status(400).json({ error: "ID inválido." });
+
+  const { nome, dataInicio, dataFim, recompensas } = req.body;
+
+  try {
+    const data: any = {};
+    if (nome) data.name = nome;
+    if (dataInicio) data.startDate = new Date(dataInicio);
+    if (dataFim) data.endDate = new Date(dataFim);
+    if (recompensas) data.rewards = recompensas;
+
+    const updated = await prisma.season.update({
+      where: { id: seasonId },
+      data,
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    console.error("Erro ao atualizar temporada:", err);
+    return res.status(500).json({ error: "Erro ao atualizar temporada" });
+  }
+});
+
+seasonRoutes.delete("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
+  const seasonId = parseQueryString(req.params.id);
+  if (!seasonId) return res.status(400).json({ error: "ID inválido." });
+
+  try {
+    await prisma.season.delete({ where: { id: seasonId } });
+    return res.json({ ok: true, message: "Temporada excluída com sucesso." });
+  } catch (err) {
+    console.error("Erro ao excluir temporada:", err);
+    return res.status(500).json({ error: "Erro ao excluir temporada" });
+  }
+});
