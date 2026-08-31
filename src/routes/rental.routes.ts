@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureUserOnly } from "../middlewares/ensureUserOnly";
 import { notifyUser } from "../services/notify.service";
+import { notifyAdmins } from "../services/adminNotification.service";
 import { notifyGameBackAvailable } from "../services/gameAvailability.service";
 import { getHolidaysByYear } from "../services/holiday.service";
 import {
@@ -26,7 +27,6 @@ function toBrtDateString(brtDate: Date) {
 
 rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => {
   const userId = req.user.id;
-
   const { gameId, copyId, startDateIso, endDateIso } = req.body;
 
   if (!gameId || !startDateIso || !endDateIso) {
@@ -79,6 +79,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         where: { id: userId },
         select: { 
           id: true, 
+          name: true,
           clientCategory: true,
           registrationStatus: true,
           isAcademicVerified: true 
@@ -231,7 +232,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         },
       });
 
-      return { status: 201, body: rental } as const;
+      return { status: 201, body: rental, userName: user.name } as const;
     });
 
     if (result.status === 201 && "id" in result.body) {
@@ -246,6 +247,13 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
         title: "Reserva Confirmada 🎲",
         body: `Sua reserva de "${game?.title}" foi agendada!`,
         channelId: "rentals",
+      });
+
+      await notifyAdmins({
+        title: "Nova Solicitação de Aluguel 🔔",
+        body: `O usuário ${result.userName} solicitou a retirada de "${game?.title}".`,
+        data: { route: "/emprestimos" },
+        dedupeKey: `ADMIN_NEW_RENTAL_${result.body.id}`
       });
     }
 

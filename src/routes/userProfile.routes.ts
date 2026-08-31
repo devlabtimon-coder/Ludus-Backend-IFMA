@@ -5,6 +5,7 @@ import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { uploadAvatar } from "../middlewares/uploadAvatar";
 import { cloudinary } from "../lib/cloudinary";
 import { ClientCategory } from "@prisma/client";
+import { notifyAdmins } from "../services/adminNotification.service";
 
 const CATEGORY_ORDER: ClientCategory[] = [
   "STARTER",
@@ -22,7 +23,6 @@ function getNextCategory(current: ClientCategory) {
 }
 
 export const userProfileRoutes = Router();
-
 
 function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
   if (!url) return null;
@@ -42,7 +42,6 @@ function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
     return null;
   }
 }
-
 
 userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   try {
@@ -139,7 +138,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   }
 });
 
-
 userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   try {
     const { name, phone } = req.body;
@@ -208,7 +206,6 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
     });
   }
 });
-
 
 userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) => {
   try {
@@ -316,7 +313,6 @@ userProfileRoutes.post(
         },
       });
 
-      // Cleanup do avatar antigo
       const oldPublicId = extractPublicIdFromCloudinaryUrl(currentUser?.avatar);
       if (oldPublicId) {
         try {
@@ -348,7 +344,6 @@ userProfileRoutes.post(
     }
   }
 );
-
 
 userProfileRoutes.delete("/me/avatar", ensureAuthenticated, async (req, res) => {
   try {
@@ -511,6 +506,13 @@ userProfileRoutes.patch(
           }
         }
       }
+
+      await notifyAdmins({
+        title: "Documentos para Análise 📄",
+        body: `O usuário ${updatedUser.name} enviou documentos e aguarda aprovação.`,
+        data: { route: "/cadastro" },
+        dedupeKey: `ADMIN_DOCS_${updatedUser.id}_${Date.now()}`
+      });
 
       return res.json({
         message: "Documentos atualizados com sucesso!",
