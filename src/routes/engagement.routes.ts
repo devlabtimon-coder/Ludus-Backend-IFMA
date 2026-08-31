@@ -89,4 +89,31 @@ engagementRoutes.get("/me", ensureAuthenticated, async (req, res) => {
   });
 });
 
+engagementRoutes.get("/active-season", ensureAuthenticated, async (req, res) => {
+  try {
+    const now = new Date();
+    const activeSeason = await prisma.season.findFirst({
+      where: {
+        startDate: { lte: now },
+        endDate: { gte: now }
+      },
+      select: {
+        id: true,
+        name: true,
+        endDate: true,
+        rewards: true
+      }
+    });
+
+    if (!activeSeason) {
+      return res.json({ activeSeason: null });
+    }
+
+    return res.json({ activeSeason });
+  } catch (err) {
+    console.error("Erro ao buscar temporada ativa:", err);
+    return res.status(500).json({ error: "Erro interno ao buscar temporada ativa." });
+  }
+});
+
 export { engagementRoutes };
