@@ -19,6 +19,7 @@ import { startRentalReminderJob } from "./jobs/rentalReminders";
 import { gameWatchRoutes } from "./routes/gameWatch.routes";
 import { userProfileRoutes } from "./routes/userProfile.routes";
 import { categoryRoutes } from "./routes/category.routes";
+import { adminReportRoutes } from "./routes/adminReport.routes";
 import ifmaRoutes from "./routes/ifma.routes";
 import { adminUserRoutes } from "./routes/adminUser.routes";
 import { startRegistrationReminderJob } from "./jobs/registration.job";
@@ -68,7 +69,7 @@ app.use("/games", gameRoutes);
 app.use("/games", gameCopyRoutes);
 app.use("/games", gameWatchRoutes);
 app.use('/mechanics', mechanicRoutes);
-
+app.use("/admin/reports", adminReportRoutes);
 app.use("/favorites", favoritesRoutes);
 app.use("/rentals", rentalRoutes);
 app.use("/admin/rentals", adminRentalRoutes);
