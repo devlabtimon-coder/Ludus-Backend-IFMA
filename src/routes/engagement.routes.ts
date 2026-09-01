@@ -116,4 +116,37 @@ engagementRoutes.get("/active-season", ensureAuthenticated, async (req, res) => 
   }
 });
 
+engagementRoutes.get("/my-coupons", ensureAuthenticated, async (req, res) => {
+  try {
+    const coupons = await prisma.coupon.findMany({
+      where: { userId: req.user.id },
+      include: { season: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const mapped = coupons.map(c => {
+      let status = 'ativo';
+      if (c.isUsed) status = 'utilizado';
+      else if (new Date() > c.expiresAt) status = 'expirado';
+
+      return {
+        id: c.id,
+        code: c.code,
+        type: c.type, 
+        value: c.value,
+        description: c.description,
+        status,
+        seasonName: c.season?.name || 'Recompensa Avulsa',
+        expiresAt: c.expiresAt,
+        createdAt: c.createdAt
+      };
+    });
+
+    return res.json(mapped);
+  } catch (err) {
+    console.error("Erro ao buscar carteira de prêmios:", err);
+    return res.status(500).json({ error: "Erro ao carregar carteira." });
+  }
+});
+
 export { engagementRoutes };
