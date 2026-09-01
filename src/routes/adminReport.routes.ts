@@ -7,24 +7,34 @@ export const adminReportRoutes = Router();
 
 adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
+    const period = (req.query.period as string) || 'month'; 
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    let startDate = new Date();
 
+    if (period === 'week') {
+      startDate.setDate(now.getDate() - 7);
+    } else if (period === 'year') {
+      startDate.setFullYear(now.getFullYear() - 1);
+    } else { 
+      startDate.setDate(now.getDate() - 30);
+    }
 
-    const totalRentals = await prisma.rental.count();
-    const uniqueGamesRented = (await prisma.rental.groupBy({ by: ['gameId'] })).length;
+  
+    const totalRentals = await prisma.rental.count({ where: { startDate: { gte: startDate } } });
+    const uniqueGamesRented = (await prisma.rental.groupBy({ by: ['gameId'], where: { startDate: { gte: startDate } } })).length;
     const totalUsers = Math.max(1, await prisma.user.count({ where: { role: 'USER' } }));
     
-
+   
     const totalCopies = await prisma.gameCopy.count();
     const availableCopies = await prisma.gameCopy.count({ where: { available: true } });
     const maintenanceCopies = await prisma.gameCopy.count({ where: { available: false } });
     const rentedCopies = await prisma.rental.count({ where: { status: { in: ['ACTIVE', 'PENDING'] } } });
     const occupancyRate = totalCopies > 0 ? Math.round((rentedCopies / totalCopies) * 100) : 0;
 
-
+  
     const rentalsGrouped = await prisma.rental.groupBy({
       by: ['gameId'],
+      where: { startDate: { gte: startDate } },
       _count: { gameId: true },
       orderBy: { _count: { gameId: 'desc' } },
       take: 6,
@@ -39,46 +49,50 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       };
     }));
 
-
+    
     const activeUsersCount = await prisma.rental.groupBy({
       by: ['userId'],
-      where: { startDate: { gte: thirtyDaysAgo } }
+      where: { startDate: { gte: startDate } }
     }).then(res => res.length);
 
     const newUsers = await prisma.user.count({
-      where: { createdAt: { gte: thirtyDaysAgo }, role: 'USER' }
+      where: { createdAt: { gte: startDate }, role: 'USER' }
     });
 
     const topUsersGroup = await prisma.rental.groupBy({
       by: ['userId'],
+      where: { startDate: { gte: startDate } },
       _count: { userId: true },
       orderBy: { _count: { userId: 'desc' } },
       take: 3,
     });
 
     const topUsers = await Promise.all(topUsersGroup.map(async (u) => {
-      const user = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true, email: true, clientCategory: true } });
+      const user = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true, email: true, clientCategory: true, avatar: true, picture: true } });
       return {
         name: user?.name || 'Desconhecido',
         email: user?.email || 'N/A',
         category: user?.clientCategory || 'STARTER',
-        rentals: u._count.userId
+        rentals: u._count.userId,
+        avatar: user?.avatar,
+        picture: user?.picture
       };
     }));
 
-    
+   
     const recentRentals = await prisma.rental.findMany({
+      where: { startDate: { gte: startDate } },
       orderBy: { startDate: 'desc' },
       take: 10,
       include: { 
-        user: { select: { name: true, email: true, matricula: true } }, 
+        user: { select: { name: true, email: true, matricula: true, avatar: true, picture: true } }, 
         game: { select: { title: true, tier: true } } 
       }
     });
 
     const history = recentRentals.map(r => ({
       id: r.id,
-      user: { name: r.user.name, email: r.user.email, membershipNumber: r.user.matricula || 'N/A' },
+      user: { name: r.user.name, email: r.user.email, membershipNumber: r.user.matricula || 'N/A', avatar: r.user.avatar, picture: r.user.picture },
       game: r.game?.title || r.gameTitleSnapshot,
       category: r.game?.tier || 'BRONZE',
       startDate: r.startDate.toLocaleDateString('pt-BR'),
@@ -87,25 +101,38 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       status: r.status === 'RETURNED' ? 'Concluído' : r.status === 'ACTIVE' ? 'Em Andamento' : r.status === 'CANCELED' ? 'Cancelado' : 'Pendente'
     }));
 
-
+   
     const evolution = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-      const count = await prisma.rental.count({
-        where: { startDate: { gte: d, lt: nextMonth } }
-      });
-      evolution.push({
-        month: d.toLocaleString('pt-BR', { month: 'short' }).replace('.', ''),
-        rentals: count,
-        projection: i === 0 ? count + Math.floor(count * 0.2) : undefined 
-      });
+    if (period === 'week') {
+     
+      for (let i = 6; i >= 0; i--) {
+        const dStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const dEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i + 1);
+        const count = await prisma.rental.count({ where: { startDate: { gte: dStart, lt: dEnd } } });
+        evolution.push({ label: dStart.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''), rentals: count });
+      }
+    } else if (period === 'year') {
+    
+      for (let i = 11; i >= 0; i--) {
+        const dStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const dEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+        const count = await prisma.rental.count({ where: { startDate: { gte: dStart, lt: dEnd } } });
+        evolution.push({ label: dStart.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), rentals: count });
+      }
+    } else {
+      
+      for (let i = 4; i >= 0; i--) {
+        const dStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 6) - 6);
+        const dEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 6));
+        const count = await prisma.rental.count({ where: { startDate: { gte: dStart, lt: dEnd } } });
+        evolution.push({ label: `${dStart.getDate()}/${dStart.getMonth()+1}`, rentals: count });
+      }
     }
 
     res.json({
       kpis: {
-        totalRentals: { value: totalRentals.toString(), tag: 'Histórico Completo' },
-        uniqueGames: { value: uniqueGamesRented.toString(), tag: 'Acervo engajado' },
+        totalRentals: { value: totalRentals.toString(), tag: period === 'week' ? 'Últimos 7 dias' : period === 'year' ? 'Últimos 12 meses' : 'Últimos 30 dias' },
+        uniqueGames: { value: uniqueGamesRented.toString(), tag: 'Jogos distintos' },
         avgRentalDays: { value: '3.0', subtitle: 'Dias por aluguel' },
         engagementRate: { value: `${Math.round((activeUsersCount / totalUsers) * 100)}%`, tag: 'Usuários ativos' },
       },
@@ -123,7 +150,7 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         activeUsersChange: 0, 
         inactiveUsers: totalUsers - activeUsersCount,
         inactiveUsersChange: 0, 
-        avgRentalsPerUser: Math.round((totalRentals / totalUsers) * 10) / 10,
+        avgRentalsPerUser: Math.round((totalRentals / Math.max(1, activeUsersCount)) * 10) / 10,
         newUsers,
         topUsers
       },
