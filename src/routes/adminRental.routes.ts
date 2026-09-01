@@ -3,7 +3,7 @@ import { NotificationType, RentalStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureAdmin } from "../middlewares/ensureAdmin";
-import { addUserPoints } from "../services/engagement.service";
+import { addUserPoints, applyConservationPenalty } from "../services/engagement.service";
 import { incrementRentalCountAndMaybePromote } from "../services/category.service";
 import { notifyUser } from "../services/notify.service";
 import { notifyGameBackAvailable } from "../services/gameAvailability.service";
@@ -48,16 +48,16 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       where,
       orderBy: { startDate: "desc" },
       include: {
-        user: { 
-           select: { 
-             id: true, 
-             name: true, 
-             email: true, 
-             phone: true, 
-             avatar: true,  
-             picture: true  
-           } 
-        },
+        user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              avatar: true, 
+              picture: true 
+             }
+         },
         game: { select: { id: true, title: true, cover: true, price: true } },
         copy: { select: { id: true, code: true, number: true, condition: true } },
       },
@@ -94,7 +94,7 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
 
 adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = getParam(req.params.id);
-  const { status } = req.body as { status?: RentalStatus };
+  const { status, applyPenalty, penaltyReason } = req.body as { status?: RentalStatus, applyPenalty?: boolean, penaltyReason?: string };
 
   if (!id) {
     return res.status(400).json({ error: "id inválido" });
@@ -128,7 +128,6 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
     }
 
     const FINALIZED: RentalStatus[] = [RentalStatus.RETURNED, RentalStatus.CANCELED];
-
     if (FINALIZED.includes(rental.status) && status !== rental.status) {
       return res.status(409).json({
         error: "Aluguel já finalizado",
@@ -136,13 +135,12 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
       });
     }
 
-   
     if (status === RentalStatus.ACTIVE && rental.status === RentalStatus.PENDING) {
       const now = new Date();
       const fifteenMinutesMs = 15 * 60 * 1000; 
       if (now.getTime() < rental.startDate.getTime() - fifteenMinutesMs) {
         return res.status(400).json({
-          error: "Muito cedo para ativar. A retirada só pode ser confirmada no horário agendado (ou até 15 minutos antes).",
+          error: "Muito cedo para ativar. A retirada só pode ser confirmada no horário agendado.",
           code: "TOO_EARLY_TO_ACTIVATE"
         });
       }
@@ -177,6 +175,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
 
     const gameTitle = rental.game?.title || rental.gameTitleSnapshot;
 
+    
     if (status === RentalStatus.ACTIVE) {
       try {
         await addUserPoints({
@@ -188,14 +187,13 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
         await notifyUser({
           userId: updated.userId,
           type: NotificationType.RENTAL_CREATED,
-          title: "Aluguel Confirmado! 🎉",
-          body: `Sua retirada de "${gameTitle}" foi confirmada. O prazo de devolução é até ${updated.endDate.toLocaleDateString("pt-BR")}.`,
+          title: "Aluguel Confirmado! 🎲",
+          body: `Sua retirada de "${gameTitle}" foi confirmada. O prazo de devolução é ${updated.endDate.toLocaleDateString("pt-BR")}.`,
           channelId: "rentals",
           data: { route: "/rentals", rentalId: updated.id },
         });
         
         await incrementRentalCountAndMaybePromote(updated.userId);
-
       } catch (err) {
         console.error("Erro ao processar pontos ou notificação de confirmação:", err);
       }
@@ -203,31 +201,41 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
 
     if (status === RentalStatus.RETURNED) {
       try {
-        const isOverdue = new Date() > rental.endDate;
-        const pointsDelta = isOverdue ? 2 : 5; 
-        const reasonPrefix = isOverdue
-          ? "RENTAL_RETURNED_LATE"
-          : "RENTAL_RETURNED_ON_TIME";
+        
+        if (applyPenalty) {
+          await applyConservationPenalty(updated.userId);
+          
+          await notifyUser({
+            userId: updated.userId,
+            type: NotificationType.SYSTEM_ANNOUNCEMENT,
+            title: "Atenção: Penalidade Aplicada",
+            body: `O jogo "${gameTitle}" foi devolvido com problemas: ${penaltyReason || 'Componentes danificados ou perdidos'}. Você sofreu uma penalidade de -20 pontos.`,
+            channelId: "system",
+            data: { route: "/ranking" }
+          });
+        } else {
+          
+          const isOverdue = new Date() > rental.endDate;
+          const pointsDelta = isOverdue ? 2 : 5; 
+          const reasonPrefix = isOverdue ? "RENTAL_RETURNED_LATE" : "RENTAL_RETURNED_ON_TIME";
 
-        await addUserPoints({
-          userId: updated.userId,
-          delta: pointsDelta,
-          reason: `${reasonPrefix}:${updated.id}`,
-        });
+          await addUserPoints({
+            userId: updated.userId,
+            delta: pointsDelta,
+            reason: `${reasonPrefix}:${updated.id}`,
+          });
 
-        await notifyUser({
-          userId: updated.userId,
-          type: NotificationType.RENTAL_RETURN_CONFIRMED,
-          title: isOverdue
-            ? "Jogo Devolvido com Atraso ⚠️"
-            : "Parabéns pela Devolução! 🎉",
-          body: isOverdue
-            ? `Você devolveu "${gameTitle}" com atraso e recebeu apenas ${pointsDelta} pontos. Tente cumprir o prazo na próxima vez para evoluir de nível mais rápido!` 
-            : `Obrigado por devolver "${gameTitle}" no prazo! Você ganhou ${pointsDelta} pontos e está mais perto do próximo nível.`,
-          channelId: "rentals",
-          data: { route: "/rentals" },
-        });
-
+          await notifyUser({
+            userId: updated.userId,
+            type: NotificationType.RENTAL_RETURN_CONFIRMED,
+            title: isOverdue ? "Jogo Devolvido com Atraso ⏰" : "Parabéns pela Devolução! 🏆",
+            body: isOverdue
+              ? `Você devolveu "${gameTitle}" com atraso e recebeu apenas ${pointsDelta} pontos. Cuidado para não perder o prazo!` 
+              : `Obrigado por devolver "${gameTitle}" no prazo e com cuidado! Você ganhou ${pointsDelta} pontos.`,
+            channelId: "rentals",
+            data: { route: "/rentals" },
+          });
+        }
       } catch (err) {
         console.error("Erro ao processar pontos ou notificação de devolução:", err);
       }
