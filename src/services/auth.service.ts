@@ -19,7 +19,7 @@ type AuthUserResponse = {
   picture: string | null;
   registrationStatus: string;
   rejectReason: string | null;
-  documentFrontImage: string | null;
+  documentFile: string | null;
   addressProof: string | null;
   isAcademicVerified: boolean;
   matricula: string | null;
@@ -40,7 +40,7 @@ function buildUserResponse(user: {
   picture: string | null;
   registrationStatus: string;
   rejectReason: string | null;
-  documentFrontImage: string | null;
+  documentFile: string | null;
   addressProof: string | null;
   isAcademicVerified?: boolean | null;
   matricula?: string | null;
@@ -61,7 +61,7 @@ function buildUserResponse(user: {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFrontImage: user.documentFrontImage,
+    documentFile: user.documentFile,
     addressProof: user.addressProof,
     isAcademicVerified: user.isAcademicVerified || false,
     matricula: user.matricula || null,
@@ -127,13 +127,11 @@ export async function loginWithGoogle(token: string) {
   let payload: { email?: string; name?: string; sub?: string; picture?: string };
 
   try {
-    
     const { data } = await axios.get(`https://oauth2.googleapis.com/tokeninfo`, {
       params: { id_token: token }
     });
     payload = data;
   } catch (err) {
-
     try {
       const { data } = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: { Authorization: `Bearer ${token}` }
@@ -149,7 +147,6 @@ export async function loginWithGoogle(token: string) {
     throw new Error("A sua conta Google não forneceu um e-mail válido.");
   }
 
-  
   if (!email.endsWith("@ifma.edu.br") && !email.endsWith("@acad.ifma.edu.br")) {
     throw new Error("Apenas e-mails institucionais do IFMA são permitidos.");
   }
