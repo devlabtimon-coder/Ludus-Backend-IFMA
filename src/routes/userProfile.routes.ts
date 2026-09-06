@@ -61,16 +61,15 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         avatar: true,
         picture: true,
         senhaHash: true,
-        
+
         registrationStatus: true,
         rejectReason: true,
-        documentFrontImage: true,
-        documentBackImage: true,
+        documentFile: true,
         addressProof: true,
         selfieWithId: true,
         clientCategory: true,
         totalRentalsCount: true,
-       
+
         isAcademicVerified: true,
         academicVerifiedAt: true,
         matricula: true,
@@ -114,8 +113,7 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       hasPassword: !!user.senhaHash,
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
-      documentFrontImage: user.documentFrontImage,
-      documentBackImage: user.documentBackImage,
+      documentFile: user.documentFile,
       addressProof: user.addressProof,
       selfieWithId: user.selfieWithId,
       clientCategory: user.clientCategory,
@@ -381,8 +379,7 @@ userProfileRoutes.patch(
   "/me/documents",
   ensureAuthenticated,
   uploadAvatar.fields([
-    { name: "documentFront", maxCount: 1 },
-    { name: "documentBack", maxCount: 1 },
+    { name: "documentFile", maxCount: 1 },
     { name: "addressProof", maxCount: 1 },
     { name: "selfieWithId", maxCount: 1 },
     { name: "enrollmentProof", maxCount: 1 },
@@ -394,43 +391,50 @@ userProfileRoutes.patch(
 
       const isIfmaMode = process.env.IFMA_MODE === "true";
 
-      const docFrontFile = files?.documentFront?.[0];
-      const docBackFile = files?.documentBack?.[0];
+      const docFile = files?.documentFile?.[0];
       const addressFile = files?.addressProof?.[0];
       const selfieFile = files?.selfieWithId?.[0];
       const enrollmentFile = files?.enrollmentProof?.[0];
 
-      if (!docFrontFile || !docBackFile) {
-        return res.status(400).json({ error: "Frente e verso do documento são obrigatórios." });
-      }
-
-      if (isIfmaMode) {
-        if (!enrollmentFile) {
-          return res.status(400).json({ error: "O comprovante do SUAP é obrigatório." });
-        }
-      } else {
-        if (!addressFile || !selfieFile) {
-          return res.status(400).json({ error: "O comprovante de residência e a selfie são obrigatórios." });
-        }
-      }
-
       const currentUser = await prisma.user.findUnique({
         where: { id: req.user.id },
         select: {
-          documentFrontImage: true,
-          documentBackImage: true,
+          documentFile: true,
           addressProof: true,
           selfieWithId: true,
           enrollmentProof: true,
         },
       });
 
+      if (!docFile && !currentUser?.documentFile) {
+        return res
+          .status(400)
+          .json({ error: "O documento de identificação (frente e verso) é obrigatório." });
+      }
+
+      if (isIfmaMode) {
+        if (!enrollmentFile && !currentUser?.enrollmentProof) {
+          return res
+            .status(400)
+            .json({ error: "O comprovante do SUAP é obrigatório." });
+        }
+      } else {
+        if (
+          (!addressFile && !currentUser?.addressProof) ||
+          (!selfieFile && !currentUser?.selfieWithId)
+        ) {
+          return res.status(400).json({
+            error: "O comprovante de residência e a selfie são obrigatórios.",
+          });
+        }
+      }
+
       const uploadToCloudinary = (fileBuffer: Buffer, publicId: string) => {
         return new Promise<any>((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
             {
               folder: "ludus/documents",
-              resource_type: "auto", 
+              resource_type: "auto",
               public_id: publicId,
               overwrite: true,
               transformation: [{ quality: "auto", fetch_format: "auto" }],
@@ -446,7 +450,7 @@ userProfileRoutes.patch(
 
       const updateData: any = {
         registrationStatus: "PENDING",
-        rejectReason: null, 
+        rejectReason: null,
       };
 
       if (isIfmaMode && matricula) {
@@ -455,32 +459,38 @@ userProfileRoutes.patch(
 
       const oldFilesToDelete: string[] = [];
 
-      if (docFrontFile) {
-        const result = await uploadToCloudinary(docFrontFile.buffer, `doc-front-${req.user.id}-${Date.now()}`);
-        updateData.documentFrontImage = result.secure_url;
-        if (currentUser?.documentFrontImage) oldFilesToDelete.push(currentUser.documentFrontImage);
+      if (docFile) {
+        const result = await uploadToCloudinary(
+          docFile.buffer,
+          `doc-${req.user.id}-${Date.now()}`
+        );
+        updateData.documentFile = result.secure_url;
+        if (currentUser?.documentFile) oldFilesToDelete.push(currentUser.documentFile);
       }
-      
-      if (docBackFile) {
-        const result = await uploadToCloudinary(docBackFile.buffer, `doc-back-${req.user.id}-${Date.now()}`);
-        updateData.documentBackImage = result.secure_url;
-        if (currentUser?.documentBackImage) oldFilesToDelete.push(currentUser.documentBackImage);
-      }
-      
+
       if (addressFile) {
-        const result = await uploadToCloudinary(addressFile.buffer, `address-${req.user.id}-${Date.now()}`);
+        const result = await uploadToCloudinary(
+          addressFile.buffer,
+          `address-${req.user.id}-${Date.now()}`
+        );
         updateData.addressProof = result.secure_url;
         if (currentUser?.addressProof) oldFilesToDelete.push(currentUser.addressProof);
       }
-      
+
       if (selfieFile) {
-        const result = await uploadToCloudinary(selfieFile.buffer, `selfie-${req.user.id}-${Date.now()}`);
+        const result = await uploadToCloudinary(
+          selfieFile.buffer,
+          `selfie-${req.user.id}-${Date.now()}`
+        );
         updateData.selfieWithId = result.secure_url;
         if (currentUser?.selfieWithId) oldFilesToDelete.push(currentUser.selfieWithId);
       }
 
       if (enrollmentFile) {
-        const result = await uploadToCloudinary(enrollmentFile.buffer, `enrollment-${req.user.id}-${Date.now()}`);
+        const result = await uploadToCloudinary(
+          enrollmentFile.buffer,
+          `enrollment-${req.user.id}-${Date.now()}`
+        );
         updateData.enrollmentProof = result.secure_url;
         if (currentUser?.enrollmentProof) oldFilesToDelete.push(currentUser.enrollmentProof);
       }
@@ -500,7 +510,10 @@ userProfileRoutes.patch(
         const publicId = extractPublicIdFromCloudinaryUrl(oldUrl);
         if (publicId) {
           try {
-            await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+            const isRaw = oldUrl.toLowerCase().endsWith(".pdf");
+            await cloudinary.uploader.destroy(publicId, {
+              resource_type: isRaw ? "raw" : "image",
+            });
           } catch (err) {
             console.error(`Erro ao remover documento antigo (${publicId}):`, err);
           }
@@ -511,7 +524,7 @@ userProfileRoutes.patch(
         title: "Documentos para Análise 📄",
         body: `O usuário ${updatedUser.name} enviou documentos e aguarda aprovação.`,
         data: { route: "/cadastro" },
-        dedupeKey: `ADMIN_DOCS_${updatedUser.id}_${Date.now()}`
+        dedupeKey: `ADMIN_DOCS_${updatedUser.id}_${Date.now()}`,
       });
 
       return res.json({
@@ -521,7 +534,7 @@ userProfileRoutes.patch(
     } catch (err: any) {
       console.error("Erro ao processar documentos:", err);
       if (err?.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ error: "As imagens devem ter no máximo 5MB." });
+        return res.status(400).json({ error: "Os arquivos devem ter no máximo 5MB." });
       }
       if (err?.code === "P2002") {
         return res.status(409).json({ error: "Essa matrícula já está cadastrada." });

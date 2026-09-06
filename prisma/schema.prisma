@@ -99,13 +99,14 @@ model User {
   cpf     String? @unique
   address String?
 
-  documentFrontImage String?
-  documentBackImage  String?
+ 
+  documentFile       String?
   addressProof       String?
   selfieWithId       String?
   enrollmentProof    String?
   registrationStatus RegistrationStatus @default(NOT_SUBMITTED)
   rejectReason       String?
+
 
   clientCategory    ClientCategory @default(STARTER)
   totalRentalsCount Int            @default(0)
