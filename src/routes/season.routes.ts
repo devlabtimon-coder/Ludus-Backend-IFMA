@@ -144,7 +144,15 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
 
     const users = await prisma.user.findMany({
       where: { role: "USER", isBlocked: false },
-      select: { id: true, name: true, level: true, points: true, clientCategory: true }
+      select: { 
+        id: true, 
+        name: true, 
+        level: true, 
+        points: true, 
+        clientCategory: true,
+        avatar: true,   
+        picture: true   
+      }
     });
 
     const rentals = await prisma.rental.findMany({
@@ -191,6 +199,7 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       return {
         id: user.id,
         nome: user.name,
+        avatar: user.avatar || user.picture || null,
         nivel: user.clientCategory.toLowerCase(), 
         currentLevel: user.level, 
         alugueis,
@@ -202,7 +211,7 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
         multas,
         pct,
         cupomEmitido: allCouponsIssued,
-        cuponsEmitidos: generatedLevels 
+        cuponsEmitidos: generatedLevels
       };
     });
 
@@ -211,7 +220,6 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
     return res.status(500).json({ error: "Erro interno ao calcular progresso" });
   }
 });
-
 seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const seasonId = parseQueryString(req.params.id);
   if (!seasonId) return res.status(400).json({ error: "ID da temporada inválido." });
