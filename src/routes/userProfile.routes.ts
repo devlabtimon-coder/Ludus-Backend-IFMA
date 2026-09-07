@@ -61,7 +61,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         avatar: true,
         picture: true,
         senhaHash: true,
-
         registrationStatus: true,
         rejectReason: true,
         documentFile: true,
@@ -69,7 +68,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
         selfieWithId: true,
         clientCategory: true,
         totalRentalsCount: true,
-
         isAcademicVerified: true,
         academicVerifiedAt: true,
         matricula: true,
@@ -82,20 +80,26 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     }
 
     const currentCount = user.totalRentalsCount ?? 0;
-    const rawProgress = currentCount % RENTALS_PER_PROMOTION;
-    const progress =
-      currentCount === 0
-        ? 0
-        : rawProgress === 0
-        ? RENTALS_PER_PROMOTION
-        : rawProgress;
+    
+    let target = 0;
+    let nextCategory: string | null = null;
 
-    const remaining =
-      progress === RENTALS_PER_PROMOTION
-        ? 0
-        : RENTALS_PER_PROMOTION - progress;
+    if (currentCount <= 10) {
+      target = 11;
+      nextCategory = "FAMILY";
+    } else if (currentCount <= 30) {
+      target = 31;
+      nextCategory = "EXPERT";
+    } else if (currentCount <= 60) {
+      target = 61;
+      nextCategory = "ULTRAGAMER";
+    } else {
+      target = currentCount;
+      nextCategory = null;
+    }
 
-    const nextCategory = getNextCategory(user.clientCategory);
+    const progress = currentCount >= 61 ? 1 : currentCount / target;
+    const remaining = currentCount >= 61 ? 0 : target - currentCount;
 
     return res.json({
       id: user.id,
@@ -118,14 +122,13 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       selfieWithId: user.selfieWithId,
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
-
       isAcademicVerified: user.isAcademicVerified,
       academicVerifiedAt: user.academicVerifiedAt,
       matricula: user.matricula,
       enrollmentProof: user.enrollmentProof,
       categoryProgress: {
-        current: progress,
-        total: RENTALS_PER_PROMOTION,
+        current: currentCount,
+        total: target,
         remaining,
         nextCategory,
       },
@@ -135,7 +138,6 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     return res.status(500).json({ error: "Erro ao buscar usuário." });
   }
 });
-
 userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   try {
     const { name, phone } = req.body;

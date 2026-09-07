@@ -3,32 +3,27 @@ import { prisma } from "../lib/prisma";
 import { notifyUser } from "./notify.service";
 import { sendPushToUser } from "./push.service";
 
-
-
 export const GAME_TIER_LABELS: Record<GameTier, string> = {
-  LATAO:   "Latão",
-  BRONZE:  "Bronze",
-  PRATA:   "Prata",
-  OURO:    "Ouro",
+  LATAO: "Latão",
+  BRONZE: "Bronze",
+  PRATA: "Prata",
+  OURO: "Ouro",
   DIAMANTE: "Diamante",
 };
 
-
 export const CLIENT_CATEGORY_LABELS: Record<ClientCategory, string> = {
-  STARTER:     "Cliente Starter",
-  FAMILY:      "Cliente Family",
-  EXPERT:      "Cliente Expert",
-  ULTRAGAMER:  "Cliente Ultragamer",
+  STARTER: "Cliente Starter",
+  FAMILY: "Cliente Family",
+  EXPERT: "Cliente Expert",
+  ULTRAGAMER: "Cliente Ultragamer",
 };
-
 
 export const ALLOWED_TIERS: Record<ClientCategory, GameTier[]> = {
-  STARTER:    ["LATAO", "BRONZE"],
-  FAMILY:     ["LATAO", "BRONZE", "PRATA"],
-  EXPERT:     ["LATAO", "BRONZE", "PRATA", "OURO"],
+  STARTER: ["LATAO", "BRONZE"],
+  FAMILY: ["LATAO", "BRONZE", "PRATA"],
+  EXPERT: ["LATAO", "BRONZE", "PRATA", "OURO"],
   ULTRAGAMER: ["LATAO", "BRONZE", "PRATA", "OURO", "DIAMANTE"],
 };
-
 
 export function canClientRentTier(
   clientCategory: ClientCategory,
@@ -36,8 +31,6 @@ export function canClientRentTier(
 ): boolean {
   return ALLOWED_TIERS[clientCategory].includes(gameTier);
 }
-
-
 
 const CATEGORY_ORDER: ClientCategory[] = [
   "STARTER",
@@ -47,14 +40,12 @@ const CATEGORY_ORDER: ClientCategory[] = [
 ];
 
 
-const RENTALS_PER_PROMOTION = 10;
-
-function nextCategory(current: ClientCategory): ClientCategory | null {
-  const idx = CATEGORY_ORDER.indexOf(current);
-  if (idx === -1 || idx >= CATEGORY_ORDER.length - 1) return null;
-  return CATEGORY_ORDER[idx + 1];
+export function getCategoryByRentalsCount(count: number): ClientCategory {
+  if (count >= 61) return "ULTRAGAMER";
+  if (count >= 31) return "EXPERT";
+  if (count >= 11) return "FAMILY";
+  return "STARTER";
 }
-
 
 export async function incrementRentalCountAndMaybePromote(
   userId: string
@@ -73,13 +64,8 @@ export async function incrementRentalCountAndMaybePromote(
     if (!user) throw new Error("Usuário não encontrado");
 
     const newCount = (user.totalRentalsCount ?? 0) + 1;
-    const shouldPromote =
-      newCount % RENTALS_PER_PROMOTION === 0 &&
-      user.clientCategory !== "ULTRAGAMER";
-
-    const newCategory = shouldPromote
-      ? (nextCategory(user.clientCategory) ?? user.clientCategory)
-      : user.clientCategory;
+    const newCategory = getCategoryByRentalsCount(newCount);
+    const shouldPromote = newCategory !== user.clientCategory;
 
     await tx.user.update({
       where: { id: userId },
@@ -90,7 +76,7 @@ export async function incrementRentalCountAndMaybePromote(
     });
 
     return {
-      promoted: shouldPromote && newCategory !== user.clientCategory,
+      promoted: shouldPromote && CATEGORY_ORDER.indexOf(newCategory) > CATEGORY_ORDER.indexOf(user.clientCategory),
       newCategory,
       newCount,
       name: user.name,
@@ -99,7 +85,6 @@ export async function incrementRentalCountAndMaybePromote(
 
   if (result.promoted) {
     const categoryLabel = CLIENT_CATEGORY_LABELS[result.newCategory];
-
     try {
       await notifyUser({
         userId,
@@ -129,12 +114,10 @@ export async function incrementRentalCountAndMaybePromote(
   }
 }
 
-
 export async function setClientCategoryAdmin(
   userId: string,
   newCategory: ClientCategory
 ): Promise<{ clientCategory: ClientCategory }> {
-  
   const oldUser = await prisma.user.findUnique({
     where: { id: userId },
     select: { clientCategory: true },
@@ -144,17 +127,21 @@ export async function setClientCategoryAdmin(
     throw new Error("Usuário não encontrado");
   }
 
- 
+  
+  let newCount = 0;
+  if (newCategory === "FAMILY") newCount = 11;
+  if (newCategory === "EXPERT") newCount = 31;
+  if (newCategory === "ULTRAGAMER") newCount = 61;
+
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { 
+    data: {
       clientCategory: newCategory,
-      totalRentalsCount: 0 
+      totalRentalsCount: newCount,
     },
     select: { id: true, clientCategory: true },
   });
 
-  
   const oldCategoryIdx = CATEGORY_ORDER.indexOf(oldUser.clientCategory);
   const newCategoryIdx = CATEGORY_ORDER.indexOf(newCategory);
 
@@ -165,11 +152,10 @@ export async function setClientCategoryAdmin(
     const title = isUpgrade ? "Categoria atualizada! 🎉" : "Ajuste de Categoria ⚠️";
     const body = isUpgrade
       ? `A administração concedeu um bônus! Agora você é ${categoryLabel} e tem novos jogos liberados.`
-      : `Sua categoria foi ajustada para ${categoryLabel} e sua contagem de aluguéis foi reiniciada.`;
-    
-    
-    const notificationType = isUpgrade 
-      ? NotificationType.LEVEL_UP 
+      : `Sua categoria foi ajustada para ${categoryLabel} e sua contagem de aluguéis foi sincronizada.`;
+
+    const notificationType = isUpgrade
+      ? NotificationType.LEVEL_UP
       : NotificationType.SYSTEM_ANNOUNCEMENT;
 
     try {
