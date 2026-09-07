@@ -386,6 +386,106 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
   }
 });
 
+rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (req, res) => {
+  const { gameId } = req.params;
+  const { year, month } = req.query; 
+
+  if (!year || !month) {
+    return res.status(400).json({ error: "Ano e mês são obrigatórios." });
+  }
+
+  try {
+    const game = await prisma.game.findUnique({
+      where: { id: String(gameId) },
+      select: { allowOriginalRental: true, available: true },
+    });
+
+    if (!game) return res.status(404).json({ error: "Jogo não encontrado." });
+
+    const copiesCount = await prisma.gameCopy.count({
+      where: { gameId: String(gameId), available: true },
+    });
+    const totalCopies = copiesCount + (game.allowOriginalRental && game.available ? 1 : 0);
+
+   
+    if (totalCopies === 0) {
+      return res.json({ unavailableDates: ["ALL"] });
+    }
+
+    const y = parseInt(String(year), 10);
+    const m = parseInt(String(month), 10);
+    const daysInMonth = new Date(y, m, 0).getDate();
+
+    const startOfMonth = new Date(`${y}-${String(m).padStart(2, "0")}-01T00:00:00-03:00`);
+    const endOfMonth = new Date(`${y}-${String(m).padStart(2, "0")}-${daysInMonth}T23:59:59-03:00`);
+
+   
+    const rentalsThisMonth = await prisma.rental.findMany({
+      where: {
+        gameId: String(gameId),
+        status: { in: ["PENDING", "ACTIVE"] },
+        startDate: { lte: endOfMonth },
+        endDate: { gte: startOfMonth },
+      },
+      select: { startDate: true, endDate: true },
+    });
+
+    const holidays = await getHolidaysByYear(y);
+    const unavailableDates: string[] = [];
+    const BUFFER_MS = 30 * 60 * 1000;
+    const now = new Date();
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const targetDate = new Date(`${dateStr}T00:00:00-03:00`);
+
+      const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
+      const isHoliday = holidays.includes(dateStr);
+
+
+      if (isWeekend || isHoliday) continue;
+
+      let slotsLivres = 0;
+
+      for (let hour = 8; hour < 19; hour++) {
+        for (let minute of [0, 30]) {
+          if (hour === 18 && minute === 30) continue;
+
+          const slotStart = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
+          const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
+
+          if (slotStart < now) continue;
+
+          let conflictingCopies = 0;
+
+          for (const r of rentalsThisMonth) {
+            const rentalStart = r.startDate.getTime();
+            const rentalEndWithBuffer = r.endDate.getTime() + BUFFER_MS;
+
+            if (slotStart.getTime() < rentalEndWithBuffer && slotEnd.getTime() > rentalStart) {
+              conflictingCopies++;
+            }
+          }
+
+          if (conflictingCopies < totalCopies) {
+            slotsLivres++;
+          }
+        }
+      }
+
+     
+      if (slotsLivres === 0) {
+        unavailableDates.push(dateStr);
+      }
+    }
+
+    return res.json({ unavailableDates });
+  } catch (err) {
+    console.error("Erro ao buscar dias esgotados:", err);
+    return res.status(500).json({ error: "Erro interno." });
+  }
+});
+
 rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, res) => {
   const { gameId } = req.params;
   const { date } = req.query; 
