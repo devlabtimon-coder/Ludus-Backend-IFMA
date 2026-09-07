@@ -205,3 +205,88 @@ export async function applyConservationPenalty(userId: string) {
     reason: "Penalidade grave: Danos, sujeira ou perda de componentes do jogo.",
   });
 }
+
+
+export async function generatePendingLevelCoupons(userId: string) {
+  
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { level: true }
+  });
+
+  if (!user) throw new Error("Usuário não encontrado");
+
+  const now = new Date();
+  const activeSeason = await prisma.season.findFirst({
+    where: { startDate: { lte: now }, endDate: { gte: now } }
+  });
+
+  if (!activeSeason) {
+    return { message: "Nenhuma temporada ativa para gerar recompensas." };
+  }
+
+ 
+  const rewardLevels = [2, 3, 4, 5];
+  const reachedLevels = rewardLevels.filter(lvl => lvl <= user.level);
+
+  if (reachedLevels.length === 0) {
+    return { message: "O usuário ainda não atingiu níveis com recompensa." };
+  }
+
+  
+  const existingCoupons = await prisma.coupon.findMany({
+    where: {
+      userId,
+      seasonId: activeSeason.id,
+      type: { startsWith: "REWARD_LEVEL_" }
+    },
+    select: { type: true }
+  });
+
+  
+  const alreadyGeneratedLevels = existingCoupons.map(c =>
+    parseInt(c.type.replace("REWARD_LEVEL_", ""), 10)
+  );
+
+ 
+  const pendingLevels = reachedLevels.filter(
+    lvl => !alreadyGeneratedLevels.includes(lvl)
+  );
+
+  if (pendingLevels.length === 0) {
+    return { message: "Todos os cupons pendentes já foram gerados para este usuário." };
+  }
+
+  
+  const seasonRewards = (activeSeason.rewards as any) || {};
+  const newCoupons = [];
+
+  for (const lvl of pendingLevels) {
+   
+    const rewardConfig = seasonRewards[`nivel${lvl}`]?.cuponsGerados?.[0] || {};
+    
+    const valorDesconto = rewardConfig.valor || 100; 
+    const descricao = rewardConfig.descricao || `Recompensa Surpresa do Nível ${lvl}`;
+
+    newCoupons.push({
+      userId,
+      seasonId: activeSeason.id,
+      code: `NVL${lvl}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      type: `REWARD_LEVEL_${lvl}`, 
+      value: valorDesconto,
+      description: descricao,
+      expiresAt: activeSeason.endDate, 
+      isUsed: false,
+    });
+  }
+
+
+  await prisma.coupon.createMany({
+    data: newCoupons
+  });
+
+  return {
+    message: `${newCoupons.length} cupons gerados com sucesso!`,
+    levelsGenerated: pendingLevels
+  };
+}
