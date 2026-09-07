@@ -10,7 +10,7 @@ export const seasonRoutes = Router();
 
 export function parseQueryString(value: any): string | undefined {
   if (Array.isArray(value)) return String(value[0]);
-  if (typeof value === 'string') return value;
+  if (typeof value === "string") return value;
   return undefined;
 }
 
@@ -26,17 +26,17 @@ const DEFAULT_REWARDS = {
 seasonRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     const seasons = await prisma.season.findMany({
-      orderBy: { startDate: 'desc' }
+      orderBy: { startDate: "desc" }
     });
     const now = new Date();
     const mapped = seasons.map(s => {
-      let status = 'encerrada';
-      if (now >= s.startDate && now <= s.endDate) status = 'ativa';
-      else if (now < s.startDate) status = 'proxima';
+      let status = "encerrada";
+      if (now >= s.startDate && now <= s.endDate) status = "ativa";
+      else if (now < s.startDate) status = "proxima";
       return {
         ...s,
         status,
-        banner: { corPrimaria: '#2D2D8C', corSecundaria: '#FBBC04' }
+        banner: { corPrimaria: "#2D2D8C", corSecundaria: "#FBBC04" }
       };
     });
     return res.json(mapped);
@@ -52,19 +52,19 @@ seasonRoutes.get("/coupons", ensureAuthenticated, ensureAdmin, async (req, res) 
         user: { select: { name: true, level: true } }, 
         season: { select: { name: true } } 
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: "desc" }
     });
     const mapped = coupons.map(c => ({
       id: c.id,
       usuario: c.user.name,
       nivel: getLevelName(c.user.level), 
-      temporada: c.season?.name || 'Avulso',
+      temporada: c.season?.name || "Avulso",
       codigo: c.code,
-      tipo: c.type === 'percentual' ? 'Percentual' : c.type === 'fixo' ? 'Valor Fixo' : 'Vale-Brinde',
-      valor: c.type === 'percentual' ? `${c.value}% OFF` : c.type === 'fixo' ? `R$ ${c.value} OFF` : 'Item Físico',
-      emitidoEm: c.createdAt.toISOString().split('T')[0],
-      expiraEm: c.expiresAt.toISOString().split('T')[0],
-      status: c.isUsed ? 'utilizado' : (new Date() > c.expiresAt ? 'expirado' : 'ativo')
+      tipo: c.type === "percentual" ? "Percentual" : c.type === "fixo" ? "Valor Fixo" : "Vale-Brinde",
+      valor: c.type === "percentual" ? `${c.value}% OFF` : c.type === "fixo" ? `R$ ${c.value} OFF` : "Item Físico",
+      emitidoEm: c.createdAt.toISOString().split("T")[0],
+      expiraEm: c.expiresAt.toISOString().split("T")[0],
+      status: c.isUsed ? "utilizado" : (new Date() > c.expiresAt ? "expirado" : "ativo")
     }));
     return res.json(mapped);
   } catch (err) {
@@ -213,39 +213,57 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
       where: { id: { in: eligibleUserIds } }
     });
 
+    const rewardLevels: number[] = [2, 3, 4, 5];
+
     for (const user of users) {
-      const alreadyHas = await prisma.coupon.findFirst({
-        where: { userId: user.id, seasonId: season.id }
+      const reachedLevels: number[] = rewardLevels.filter((l: number) => l <= user.level);
+
+      const existingCoupons: { code: string }[] = await prisma.coupon.findMany({
+        where: { userId: user.id, seasonId: season.id },
+        select: { code: true }
       });
-      if (alreadyHas) continue;
 
-      const levelKey = `nivel${user.level}`;
-      const userReward = rewards[levelKey]?.cuponsGerados?.[0]; 
+      const alreadyGeneratedLevels: number[] = existingCoupons
+        .map((c: { code: string }) => {
+          const match = c.code.match(/^NIVEL(\d+)-/);
+          return match ? parseInt(match[1], 10) : null;
+        })
+        .filter((l: number | null): l is number => l !== null);
 
-      if (!userReward) continue;
+      const pendingLevels: number[] = reachedLevels.filter(
+        (l: number) => !alreadyGeneratedLevels.includes(l)
+      );
 
-      const code = `NIVEL${user.level}-S${season.name.replace(/\D/g, '')}-${Math.random().toString(36).substring(2,6).toUpperCase()}`;
+      for (const lvl of pendingLevels) {
+        const levelKey = `nivel${lvl}`;
+        const userReward = rewards[levelKey]?.cuponsGerados?.[0];
 
-      await prisma.coupon.create({
-        data: {
-          code,
-          type: userReward.tipo,
-          value: userReward.valor,
-          description: userReward.descricao,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 
+        if (!userReward) continue;
+
+        const code = `NIVEL${lvl}-S${season.name.replace(/\D/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+        await prisma.coupon.create({
+          data: {
+            code,
+            type: userReward.tipo,
+            value: userReward.valor,
+            description: userReward.descricao,
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            userId: user.id,
+            seasonId: season.id
+          }
+        });
+
+        await notifyUser({
           userId: user.id,
-          seasonId: season.id
-        }
-      });
-
-      await notifyUser({
-        userId: user.id,
-        type: NotificationType.SYSTEM_ANNOUNCEMENT,
-        title: "Recompensa de Temporada!",
-        body: `Você bateu os pontos da temporada e ganhou um cupom: ${code}. Aproveite!`,
-        channelId: "system",
-      });
-      count++;
+          type: NotificationType.SYSTEM_ANNOUNCEMENT,
+          title: "Recompensa de Temporada!",
+          body: `Você bateu a meta e ganhou o cupom do Nível ${lvl}: ${code}. Aproveite!`,
+          channelId: "system",
+        });
+        
+        count++;
+      }
     }
 
     return res.json({ message: `${count} cupons gerados com sucesso!`, count });
@@ -268,7 +286,7 @@ seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, r
     });
 
     const logs = await prisma.userPointsLog.groupBy({
-      by: ['userId'],
+      by: ["userId"],
       where: {
         createdAt: {
           gte: season.startDate,
