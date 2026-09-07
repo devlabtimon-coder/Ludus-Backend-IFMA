@@ -14,7 +14,8 @@ adminLogRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       take: limit,
       include: {
         admin: {
-          select: { name: true, email: true }
+     
+          select: { name: true, email: true, avatar: true, picture: true }
         }
       }
     });
