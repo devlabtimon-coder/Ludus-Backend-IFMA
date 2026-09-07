@@ -9,11 +9,11 @@ import {
     ALLOWED_TIERS,
     setClientCategoryAdmin,
 } from "../services/category.service";
+import { logAdminAction } from "../services/adminLog.service";
 
 const categoryRoutes = Router();
 
 export { categoryRoutes };
-
 
 categoryRoutes.get("/config", (_req, res) => {
     return res.json({
@@ -30,7 +30,6 @@ categoryRoutes.get("/config", (_req, res) => {
         ),
     });
 });
-
 
 categoryRoutes.patch(
     "/games/:id/tier",
@@ -69,6 +68,8 @@ categoryRoutes.patch(
                 },
             });
 
+            await logAdminAction(req.user.id, "UPDATE_GAME_TIER", id, { newTier: tier });
+
             return res.json({
                 message: `Jogo "${updated.title}" classificado como ${GAME_TIER_LABELS[updated.tier]}.`,
                 game: updated,
@@ -79,7 +80,6 @@ categoryRoutes.patch(
         }
     }
 );
-
 
 categoryRoutes.patch(
     "/users/:id/category",
@@ -100,8 +100,7 @@ categoryRoutes.patch(
             !Object.values(ClientCategory).includes(clientCategory as ClientCategory)
         ) {
             return res.status(400).json({
-                error:
-                    "clientCategory inválida. Use: STARTER, FAMILY, EXPERT ou ULTRAGAMER.",
+                error: "clientCategory inválida. Use: STARTER, FAMILY, EXPERT ou ULTRAGAMER.",
             });
         }
 
@@ -116,6 +115,8 @@ categoryRoutes.patch(
                 id,
                 clientCategory as ClientCategory
             );
+
+            await logAdminAction(req.user.id, "CHANGE_USER_CATEGORY", id, { newCategory: clientCategory });
 
             return res.json({
                 message: `Usuário classificado como ${CLIENT_CATEGORY_LABELS[result.clientCategory]}.`,

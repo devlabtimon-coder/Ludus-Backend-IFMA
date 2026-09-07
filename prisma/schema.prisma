@@ -123,6 +123,22 @@ model User {
   notifications           Notification[]
   gameAvailabilityWatches GameAvailabilityWatch[]
   coupons                 Coupon[]
+  adminLogs AdminLog[]
+}
+
+model AdminLog {
+  id        String   @id @default(uuid())
+  adminId   String
+  action    String
+  entityId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Game {

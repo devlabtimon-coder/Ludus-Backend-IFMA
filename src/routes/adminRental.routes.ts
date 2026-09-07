@@ -7,6 +7,7 @@ import { addUserPoints, applyConservationPenalty } from "../services/engagement.
 import { incrementRentalCountAndMaybePromote } from "../services/category.service";
 import { notifyUser } from "../services/notify.service";
 import { notifyGameBackAvailable } from "../services/gameAvailability.service";
+import { logAdminAction } from "../services/adminLog.service";
 
 export const adminRentalRoutes = Router();
 
@@ -167,6 +168,12 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
       });
     });
 
+    await logAdminAction(req.user.id, `CHANGE_RENTAL_STATUS_${status}`, updated.id, {
+      applyPenalty,
+      penaltyReason,
+      targetUserId: updated.userId
+    });
+
     if ((status === RentalStatus.RETURNED || status === RentalStatus.CANCELED) && updated.gameId) {
       notifyGameBackAvailable(updated.gameId).catch((err) =>
         console.error("Erro ao notificar disponibilidade:", err)
@@ -174,7 +181,6 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
     }
 
     const gameTitle = rental.game?.title || rental.gameTitleSnapshot;
-
     
     if (status === RentalStatus.ACTIVE) {
       try {
@@ -201,7 +207,6 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
 
     if (status === RentalStatus.RETURNED) {
       try {
-        
         if (applyPenalty) {
           await applyConservationPenalty(updated.userId);
           
@@ -214,7 +219,6 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
             data: { route: "/ranking" }
           });
         } else {
-          
           const isOverdue = new Date() > rental.endDate;
           const pointsDelta = isOverdue ? 2 : 5; 
           const reasonPrefix = isOverdue ? "RENTAL_RETURNED_LATE" : "RENTAL_RETURNED_ON_TIME";

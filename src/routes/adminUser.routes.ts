@@ -5,6 +5,7 @@ import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureAdmin } from "../middlewares/ensureAdmin";
 import { ensureString } from "../utils/params";
 import { notifyUser } from "../services/notify.service";
+import { logAdminAction } from "../services/adminLog.service";
 
 export const adminUserRoutes = Router();
 
@@ -25,6 +26,14 @@ adminUserRoutes.patch("/:id/block", ensureAuthenticated, ensureAdmin, async (req
       where: { id },
       data: { isBlocked }
     });
+
+
+    await logAdminAction(
+      req.user.id,
+      isBlocked ? "BLOCK_USER" : "UNBLOCK_USER",
+      id,
+      { targetEmail: user.email }
+    );
     
     return res.json({ 
       message: isBlocked ? "Usuário bloqueado com sucesso." : "Usuário desbloqueado com sucesso." 
@@ -51,6 +60,9 @@ adminUserRoutes.patch("/:id/verify-academic", ensureAuthenticated, ensureAdmin, 
       where: { id },
       data: { isAcademicVerified: true, academicVerifiedAt: new Date() }
     });
+
+    await logAdminAction(req.user.id, "VERIFY_ACADEMIC_MANUAL", id);
+
     return res.json({ message: "Vínculo acadêmico aprovado manualmente." });
   } catch (err) {
     console.error("Erro ao aprovar vínculo:", err);
@@ -82,6 +94,8 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
       where: { id },
       data: updateData
     });
+
+    await logAdminAction(req.user.id, "APPROVE_DOCS", id);
 
     await notifyUser({
       userId: id,
@@ -128,6 +142,8 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
       data: updateData
     });
 
+    await logAdminAction(req.user.id, "REJECT_DOCS", id, { reason: reason.trim() });
+
     await notifyUser({
       userId: id,
       type: NotificationType.VERIFY_REQUIRED,
@@ -146,9 +162,7 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
 adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         name: true,
@@ -192,6 +206,8 @@ adminUserRoutes.post("/:id/request-doc", ensureAuthenticated, ensureAdmin, async
   try {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
+
+    await logAdminAction(req.user.id, "REQUEST_DOC", id, { documentName });
 
     await notifyUser({
       userId: id,
@@ -284,6 +300,8 @@ adminUserRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, 
     await prisma.coupon.createMany({
       data: newCoupons
     });
+
+    await logAdminAction(req.user.id, "GENERATE_COUPONS", id, { count: newCoupons.length });
 
     return res.json({
       message: `${newCoupons.length} cupom(ns) gerado(s) com sucesso.`,

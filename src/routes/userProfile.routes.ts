@@ -138,6 +138,7 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
     return res.status(500).json({ error: "Erro ao buscar usuário." });
   }
 });
+
 userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
   try {
     const { name, phone } = req.body;
