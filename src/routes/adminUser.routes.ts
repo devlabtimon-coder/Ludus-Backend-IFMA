@@ -170,6 +170,7 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
         points: true,
         totalRentalsCount: true,
         clientCategory: true,
+        matricula: true,
       }
     });
 
