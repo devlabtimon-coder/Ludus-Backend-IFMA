@@ -154,13 +154,11 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       where: { points: { lt: 0 }, createdAt: { gte: season.startDate, lte: season.endDate } }
     });
     
-  
     const generatedCoupons = await prisma.coupon.findMany({
       where: { seasonId: season.id },
       select: { userId: true, code: true }
     });
 
-   
     const userCouponsMap = new Map<string, number[]>();
     for (const c of generatedCoupons) {
       const match = c.code.match(/^NIVEL(\d+)-/);
@@ -186,11 +184,8 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
 
       const pct = Math.min(100, Math.round((user.points / MAX_SEASON_POINTS) * 100));
 
-      
       const reachedLevels = rewardLevels.filter(lvl => lvl <= user.level);
       const generatedLevels = userCouponsMap.get(user.id) || [];
-      
-      
       const allCouponsIssued = reachedLevels.length > 0 && reachedLevels.every(lvl => generatedLevels.includes(lvl));
 
       return {
@@ -206,7 +201,8 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
         avaliacoesMax: MAX_SEASON_POINTS,
         multas,
         pct,
-        cupomEmitido: allCouponsIssued
+        cupomEmitido: allCouponsIssued,
+        cuponsEmitidos: generatedLevels 
       };
     });
 

@@ -141,6 +141,28 @@ export async function addUserPoints(params: {
         channelId: "system",
         data: { route: "/ranking" },
       });
+
+      if (result.nextLevel >= 2) {
+        try {
+          const admins = await prisma.user.findMany({
+            where: { role: "ADMIN" },
+            select: { id: true }
+          });
+
+          for (const admin of admins) {
+            await notifyUser({
+              userId: admin.id,
+              type: NotificationType.SYSTEM_ANNOUNCEMENT,
+              title: "Cupons Pendentes 🎟️",
+              body: `O aluno ${result.updated.name} alcançou o Nível ${result.nextLevel}. Acesse o painel para gerar a recompensa.`,
+              channelId: "system",
+              data: { route: "temporadas" }
+            });
+          }
+        } catch (adminErr) {
+          console.error("Erro ao notificar admins sobre cupons:", adminErr);
+        }
+      }
     }
   } catch (e) {
     console.error("Falha ao notificar pontos/level:", e);
@@ -279,7 +301,6 @@ export async function generatePendingLevelCoupons(userId: string) {
       isUsed: false,
     });
   }
-
 
   await prisma.coupon.createMany({
     data: newCoupons
