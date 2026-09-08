@@ -1,25 +1,24 @@
 import axios from "axios";
 
-const GITHUB_MODELS_TOKEN = process.env.GITHUB_MODELS_TOKEN || "";
-const GITHUB_MODELS_URL =
-  process.env.GITHUB_MODELS_URL ||
-  "https://models.github.ai/inference/chat/completions";
-const GITHUB_MODELS_MODEL =
-  process.env.GITHUB_MODELS_MODEL || "openai/gpt-4.1-mini";
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 
 export async function translateToPT(text: string) {
   if (!text?.trim()) return "";
 
-  if (!GITHUB_MODELS_TOKEN) {
-    console.log("GITHUB_MODELS_TOKEN não configurado");
+  if (!GEMINI_API_KEY) {
+    console.log("GEMINI_API_KEY não configurada");
     return text;
   }
 
   try {
     const response = await axios.post(
-      GITHUB_MODELS_URL,
+      GEMINI_URL,
       {
-        model: GITHUB_MODELS_MODEL,
+        model: GEMINI_MODEL,
         messages: [
           {
             role: "system",
@@ -35,7 +34,7 @@ export async function translateToPT(text: string) {
       },
       {
         headers: {
-          Authorization: `Bearer ${GITHUB_MODELS_TOKEN}`,
+          Authorization: `Bearer ${GEMINI_API_KEY}`,
           "Content-Type": "application/json",
         },
         timeout: 60000,
@@ -44,14 +43,13 @@ export async function translateToPT(text: string) {
 
     const translated =
       response.data?.choices?.[0]?.message?.content?.trim() || "";
-https://developers.openai.com/api/docs
+
     return translated || text;
   } catch (error: any) {
     console.log(
-      "Erro na tradução com GitHub Models:",
+      "Erro na tradução com Gemini:",
       error?.response?.data || error?.message || error
     );
-
     return text;
   }
 }
