@@ -8,6 +8,7 @@ export const maintenanceRoutes = Router();
 maintenanceRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     
+   
     const inactiveGames = await prisma.game.findMany({
       where: { isActive: false },
       select: {
@@ -15,10 +16,8 @@ maintenanceRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         title: true,
         cover: true,
         inactivationReason: true,
-        updatedAt: true,
       }
     });
-
 
     const brokenCopies = await prisma.gameCopy.findMany({
       where: { available: false },
@@ -26,7 +25,6 @@ maintenanceRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         game: { select: { title: true, cover: true } }
       }
     });
-
     
     const report = [
       ...inactiveGames.map(g => ({
@@ -37,7 +35,7 @@ maintenanceRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         cover: g.cover,
         code: "Sistema",
         reason: g.inactivationReason || "Inativado sem motivo registrado",
-        date: g.updatedAt,
+        date: new Date(), 
       })),
       ...brokenCopies.map(c => ({
         id: `copy_${c.id}`,
@@ -51,7 +49,6 @@ maintenanceRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         date: c.updatedAt,
       }))
     ];
-
     
     report.sort((a, b) => b.date.getTime() - a.date.getTime());
 
