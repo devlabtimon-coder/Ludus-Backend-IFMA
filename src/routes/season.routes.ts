@@ -16,6 +16,14 @@ export function parseQueryString(value: any): string | undefined {
 
 const MAX_SEASON_POINTS = 1500;
 
+export function calculateSeasonLevel(points: number): number {
+  if (points >= 1500) return 5;
+  if (points >= 700) return 4;
+  if (points >= 300) return 3;
+  if (points >= 100) return 2;
+  return 1;
+}
+
 const DEFAULT_REWARDS = {
   nivel2: { cuponsGerados: [{ tipo: "percentual", valor: 5, descricao: "Cupom 5% OFF - Nível 2" }] },
   nivel3: { cuponsGerados: [{ tipo: "percentual", valor: 10, descricao: "Cupom 10% OFF - Nível 3" }] },
@@ -155,9 +163,45 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
       }
     });
 
+    
     const rentals = await prisma.rental.findMany({
-      where: { status: "RETURNED", endDate: { gte: season.startDate, lte: season.endDate } }
+      where: {
+        OR: [
+          { startDate: { gte: season.startDate, lte: season.endDate } },
+          { endDate: { gte: season.startDate, lte: season.endDate } },
+          {
+            AND: [
+              { startDate: { lte: season.endDate } },
+              { endDate: { gte: season.startDate } }
+            ]
+          }
+        ],
+        status: { not: "CANCELED" }
+      },
+      include: {
+        game: { select: { title: true, cover: true } }
+      }
     });
+
+   
+    const pointsLogs = await prisma.userPointsLog.groupBy({
+      by: ["userId"],
+      where: {
+        createdAt: {
+          gte: season.startDate,
+          lte: season.endDate,
+        }
+      },
+      _sum: {
+        points: true,
+      }
+    });
+
+    const userPointsMap = new Map<string, number>();
+    for (const p of pointsLogs) {
+      userPointsMap.set(p.userId, p._sum.points || 0);
+    }
+
     const penalties = await prisma.userPointsLog.findMany({
       where: { points: { lt: 0 }, createdAt: { gte: season.startDate, lte: season.endDate } }
     });
@@ -179,6 +223,8 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
     }
 
     const rewardLevels: number[] = [2, 3, 4, 5];
+    const now = new Date();
+    const isSeasonActive = now >= season.startDate && now <= season.endDate;
 
     const progressData = users.map(user => {
       const userRentals = rentals.filter(r => r.userId === user.id);
@@ -190,36 +236,48 @@ seasonRoutes.get("/:id/progress", ensureAuthenticated, ensureAdmin, async (req, 
         return acc + Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       }, 0);
 
-      const pct = Math.min(100, Math.round((user.points / MAX_SEASON_POINTS) * 100));
+     
+      const logPoints = userPointsMap.get(user.id) || 0;
+      const seasonPoints = isSeasonActive ? Math.max(logPoints, user.points) : logPoints;
+      const seasonLevel = isSeasonActive ? Math.max(calculateSeasonLevel(seasonPoints), user.level) : calculateSeasonLevel(seasonPoints);
 
-      const reachedLevels = rewardLevels.filter(lvl => lvl <= user.level);
+      const pct = Math.min(100, Math.max(0, Math.round((seasonPoints / MAX_SEASON_POINTS) * 100)));
+
+      const reachedLevels = rewardLevels.filter(lvl => lvl <= seasonLevel);
       const generatedLevels = userCouponsMap.get(user.id) || [];
       const allCouponsIssued = reachedLevels.length > 0 && reachedLevels.every(lvl => generatedLevels.includes(lvl));
+
+      const jogosAlugados = Array.from(new Set(
+        userRentals.map(r => r.gameTitleSnapshot || r.game?.title).filter(Boolean)
+      ));
 
       return {
         id: user.id,
         nome: user.name,
         avatar: user.avatar || user.picture || null,
         nivel: user.clientCategory.toLowerCase(), 
-        currentLevel: user.level, 
+        currentLevel: seasonLevel, 
         alugueis,
         alugueisMax: 0, 
         diasSemAtraso,
         diasMax: 0, 
-        avaliacoes: user.points, 
+        avaliacoes: seasonPoints, 
         avaliacoesMax: MAX_SEASON_POINTS,
         multas,
         pct,
         cupomEmitido: allCouponsIssued,
-        cuponsEmitidos: generatedLevels
+        cuponsEmitidos: generatedLevels,
+        jogosAlugados,
       };
     });
 
     return res.json(progressData);
   } catch (err) {
+    console.error("Erro ao calcular progresso da temporada:", err);
     return res.status(500).json({ error: "Erro interno ao calcular progresso" });
   }
 });
+
 seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const seasonId = parseQueryString(req.params.id);
   if (!seasonId) return res.status(400).json({ error: "ID da temporada inválido." });
@@ -240,10 +298,27 @@ seasonRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, asy
       where: { id: { in: eligibleUserIds } }
     });
 
+    const pointsLogs = await prisma.userPointsLog.groupBy({
+      by: ["userId"],
+      where: {
+        userId: { in: eligibleUserIds },
+        createdAt: {
+          gte: season.startDate,
+          lte: season.endDate,
+        }
+      },
+      _sum: { points: true }
+    });
+    const pointsMap = new Map(pointsLogs.map(l => [l.userId, l._sum.points || 0]));
+
     const rewardLevels: number[] = [2, 3, 4, 5];
+    const now = new Date();
+    const isSeasonActive = now >= season.startDate && now <= season.endDate;
 
     for (const user of users) {
-      const reachedLevels: number[] = rewardLevels.filter((l: number) => l <= user.level);
+      const seasonPoints = isSeasonActive ? Math.max(pointsMap.get(user.id) || 0, user.points) : (pointsMap.get(user.id) || 0);
+      const seasonLevel = isSeasonActive ? Math.max(calculateSeasonLevel(seasonPoints), user.level) : calculateSeasonLevel(seasonPoints);
+      const reachedLevels: number[] = rewardLevels.filter((l: number) => l <= seasonLevel);
 
       const existingCoupons: { code: string }[] = await prisma.coupon.findMany({
         where: { userId: user.id, seasonId: season.id },
@@ -309,7 +384,7 @@ seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, r
 
     const users = await prisma.user.findMany({
       where: { role: "USER", isBlocked: false },
-      select: { id: true, name: true, email: true, avatar: true, picture: true, clientCategory: true, totalRentalsCount: true }
+      select: { id: true, name: true, email: true, avatar: true, picture: true, clientCategory: true, totalRentalsCount: true, points: true, level: true }
     });
 
     const logs = await prisma.userPointsLog.groupBy({
@@ -325,12 +400,35 @@ seasonRoutes.get("/:id/ranking", ensureAuthenticated, ensureAdmin, async (req, r
       },
     });
 
-    const pointsMap = new Map(logs.map(l => [l.userId, l._sum.points || 0]));
+    const rentals = await prisma.rental.findMany({
+      where: {
+        OR: [
+          { startDate: { gte: season.startDate, lte: season.endDate } },
+          { endDate: { gte: season.startDate, lte: season.endDate } },
+        ],
+        status: { not: "CANCELED" }
+      },
+      select: { userId: true, gameTitleSnapshot: true, game: { select: { title: true } } }
+    });
 
-    const ranking = users.map(u => ({
-      ...u,
-      points: pointsMap.get(u.id) || 0,
-    })).sort((a, b) => b.points - a.points);
+    const pointsMap = new Map(logs.map(l => [l.userId, l._sum.points || 0]));
+    const now = new Date();
+    const isSeasonActive = now >= season.startDate && now <= season.endDate;
+
+    const ranking = users.map(u => {
+      const seasonPts = isSeasonActive ? Math.max(pointsMap.get(u.id) || 0, u.points) : (pointsMap.get(u.id) || 0);
+      const seasonLvl = calculateSeasonLevel(seasonPts);
+      const userRentals = rentals.filter(r => r.userId === u.id);
+      const games = Array.from(new Set(userRentals.map(r => r.gameTitleSnapshot || r.game?.title).filter(Boolean)));
+
+      return {
+        ...u,
+        points: seasonPts,
+        level: seasonLvl,
+        rentalsCount: userRentals.length,
+        gamesRented: games,
+      };
+    }).sort((a, b) => b.points - a.points);
 
     return res.json(ranking);
   } catch (err) {
