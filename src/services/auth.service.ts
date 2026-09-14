@@ -190,4 +190,4 @@ export async function loginWithGoogle(token: string) {
     user: buildUserResponse(user),
     needsPhoneVerification: !!user.phone && !user.phoneVerified,
   };
-}
+} 

@@ -71,7 +71,8 @@ gameRoutes.get("/", async (req, res) => {
     if (parts.length === 2) {
       const token = parts[1];
       try {
-        const decoded = verify(token, process.env.JWT_SECRET as string) as any;
+        
+        const decoded = verify(token, process.env.JWT_SECRET || "secret_fallback") as any;
         
         if (decoded.sub) {
           const userCheck = await prisma.user.findUnique({
@@ -82,7 +83,9 @@ gameRoutes.get("/", async (req, res) => {
             isAdmin = true;
           }
         }
-      } catch (e) {
+      } catch (e: any) {
+      
+        console.error("Erro na verificação do token (Admin):", e.message);
       }
     }
   }
