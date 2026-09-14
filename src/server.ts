@@ -26,6 +26,7 @@ import { startRegistrationReminderJob } from "./jobs/registration.job";
 import { startSeasonJob } from "./jobs/season.job";
 import { mechanicRoutes } from './routes/mechanic.routes';
 import { seasonRoutes } from "./routes/season.routes";
+import { maintenanceRoutes } from "./routes/maintenance.routes";
 
 
 import { adminLogRoutes } from "./routes/adminLog.routes";
@@ -66,6 +67,7 @@ if (process.env.IFMA_MODE === "true") {
 app.use("/games", gameRoutes);
 app.use("/games", gameCopyRoutes);
 app.use("/games", gameWatchRoutes);
+app.use("/admin/maintenance", maintenanceRoutes);
 app.use('/mechanics', mechanicRoutes);
 app.use("/admin/reports", adminReportRoutes);
 app.use("/favorites", favoritesRoutes);

@@ -155,8 +155,9 @@ model Game {
   ratingsCount Int?
   howToPlayUrl String? @db.Text
 
-  isActive  Boolean @default(true)
-  isVisible Boolean @default(true)
+  isActive           Boolean @default(true)
+  isVisible          Boolean @default(true)
+  inactivationReason String? @db.Text 
 
   tier GameTier @default(BRONZE)
 
