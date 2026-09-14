@@ -685,6 +685,7 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
       howToPlayUrl,
       isVisible,
       isActive,
+      inactivationReason,
     } = req.body;
 
     const data: any = {};
@@ -693,7 +694,12 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
     if (typeof description === "string") data.description = description;
     if (typeof available === "boolean") data.available = available;
     if (typeof isVisible === "boolean") data.isVisible = isVisible;
-    if (typeof isActive === "boolean") data.isActive = isActive;
+    
+  
+    if (typeof isActive === "boolean") {
+      data.isActive = isActive;
+      data.inactivationReason = isActive ? null : inactivationReason;
+    }
 
     if (typeof howToPlayUrl === "string") {
       const clean = howToPlayUrl.trim();
