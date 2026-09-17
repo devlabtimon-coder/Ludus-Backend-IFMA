@@ -1,10 +1,11 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import path from "path";
 import * as admin from "firebase-admin";
 import { cert } from "firebase-admin/app";
-import { prisma } from './lib/prisma';
+import { globalLimiter } from "./middlewares/rateLimiter";
 
 import authRoutes from "./routes/auth.routes";
 import { gameRoutes } from "./routes/game.routes";
@@ -27,9 +28,13 @@ import { startSeasonJob } from "./jobs/season.job";
 import { mechanicRoutes } from './routes/mechanic.routes';
 import { seasonRoutes } from "./routes/season.routes";
 import { maintenanceRoutes } from "./routes/maintenance.routes";
-
-
 import { adminLogRoutes } from "./routes/adminLog.routes";
+
+
+if (!process.env.JWT_SECRET) {
+  console.error("ERRO CRÍTICO: JWT_SECRET não está configurado no .env!");
+  process.exit(1);
+}
 
 const credentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 if (!credentialsBase64) {
@@ -49,14 +54,34 @@ startRentalReminderJob();
 startRegistrationReminderJob();
 startSeasonJob();
 
-app.use(cors());
+
+app.use(helmet());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(",") 
+  : ["http://localhost:5173", "http://localhost:8081"];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Bloqueado pela política de CORS"));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
+
+app.use(globalLimiter);
 
 app.get("/health", (_req, res) => {
   return res.status(200).json({ ok: true });
 });
 
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+
 
 app.use("/auth", authRoutes);
 if (process.env.IFMA_MODE === "true") {
@@ -80,14 +105,11 @@ app.use("/categories", categoryRoutes);
 app.use("/admin/seasons", seasonRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/admin/users", adminUserRoutes);
-
-
 app.use("/admin/logs", adminLogRoutes);
 
 app.get("/", (_req, res) => {
   res.send("API Ludus rodando 🎲");
 });
-
 
 
 const PORT = Number(process.env.PORT) || 3000;

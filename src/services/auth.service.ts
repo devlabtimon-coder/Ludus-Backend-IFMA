@@ -71,7 +71,7 @@ function buildUserResponse(user: {
 function signUserToken(userId: string, role: string) {
   return jwt.sign(
     { role },
-    process.env.JWT_SECRET || "secret_fallback",
+    process.env.JWT_SECRET as string, 
     {
       subject: userId,
       expiresIn: "7d",
@@ -190,4 +190,4 @@ export async function loginWithGoogle(token: string) {
     user: buildUserResponse(user),
     needsPhoneVerification: !!user.phone && !user.phoneVerified,
   };
-} 
+}

@@ -5,6 +5,7 @@ import { getAuth } from "firebase-admin/auth";
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle } from "../services/auth.service";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
+import { loginLimiter, otpLimiter } from "../middlewares/rateLimiter";
 
 const router = Router();
 
@@ -73,7 +74,7 @@ function buildUserResponse(user: {
 function signUserToken(userId: string, role: string) {
   return jwt.sign(
     { role },
-    process.env.JWT_SECRET || "secret_fallback",
+    process.env.JWT_SECRET as string,
     {
       subject: userId,
       expiresIn: "7d",
@@ -81,7 +82,7 @@ function signUserToken(userId: string, role: string) {
   );
 }
 
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   const { email, senha } = req.body;
 
   try {
@@ -92,7 +93,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/google", async (req, res) => {
+router.post("/google", loginLimiter, async (req, res) => {
   const token = req.body.token || req.body.idToken;
 
   if (!token) {
@@ -334,7 +335,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-router.post("/verify-email", async (req, res) => {
+router.post("/verify-email", otpLimiter, async (req, res) => {
   const { email, code } = req.body;
 
   const cleanEmail = (email || "").trim().toLowerCase();
@@ -477,7 +478,7 @@ router.post("/resend-email-code", async (req, res) => {
   return res.json({ message: "Novo código enviado por e-mail!" });
 });
 
-router.post("/verify-phone", async (req, res) => {
+router.post("/verify-phone", otpLimiter, async (req, res) => {
   const { idToken } = req.body;
 
   if (!idToken) {
@@ -616,7 +617,7 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-router.post("/forgot-password/verify", async (req, res) => {
+router.post("/forgot-password/verify", otpLimiter, async (req, res) => {
   const { email, code } = req.body;
   const cleanEmail = (email || "").trim().toLowerCase();
   const cleanCode = cleanDigits(code);
@@ -647,7 +648,7 @@ router.post("/forgot-password/verify", async (req, res) => {
 
     const resetToken = jwt.sign(
       { purpose: "password_reset" },
-      process.env.JWT_SECRET || "secret_fallback",
+      process.env.JWT_SECRET as string,
       { subject: user.id, expiresIn: "5m" }
     );
 
@@ -682,7 +683,7 @@ router.post("/forgot-password/reset", async (req, res) => {
     try {
       payload = jwt.verify(
         resetToken,
-        process.env.JWT_SECRET || "secret_fallback"
+        process.env.JWT_SECRET as string
       ) as any;
     } catch {
       return res.status(400).json({ error: "Token expirado ou inválido. Recomece o processo." });
