@@ -18,11 +18,9 @@ function requireSingleParam(
   name: string
 ) {
   const value = Array.isArray(param) ? param[0] : param;
-
   if (!value || typeof value !== "string") {
     throw new Error(`Parâmetro inválido: ${name}`);
   }
-
   return value;
 }
 
@@ -32,11 +30,9 @@ gameRoutes.get(
   ensureAdmin,
   async (req, res) => {
     const q = Array.isArray(req.query.q) ? req.query.q[0] : req.query.q;
-
     if (!q) {
       return res.status(400).json({ error: "O termo de busca é obrigatório" });
     }
-
     try {
       const results = await searchLudopedia(String(q));
       return res.json(results);
@@ -57,23 +53,18 @@ gameRoutes.get("/", async (req, res) => {
   const priceMin = Array.isArray(req.query.priceMin) ? req.query.priceMin[0] : req.query.priceMin;
   const priceMax = Array.isArray(req.query.priceMax) ? req.query.priceMax[0] : req.query.priceMax;
   const timeMax = Array.isArray(req.query.timeMax) ? req.query.timeMax[0] : req.query.timeMax;
-  
   const sortParam = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort;
-  
   const tier = Array.isArray(req.query.tier) ? req.query.tier.join(",") : req.query.tier;
   const mechanics = Array.isArray(req.query.mechanics) ? req.query.mechanics.join(",") : req.query.mechanics;
 
   let isAdmin = false;
   const authHeader = req.headers.authorization;
-
   if (authHeader) {
     const parts = authHeader.split(" ");
     if (parts.length === 2) {
       const token = parts[1];
       try {
-        
-        const decoded = verify(token, process.env.JWT_SECRET || "secret_fallback") as any;
-        
+        const decoded = verify(token, process.env.JWT_SECRET as string) as any;
         if (decoded.sub) {
           const userCheck = await prisma.user.findUnique({
             where: { id: decoded.sub },
@@ -84,7 +75,6 @@ gameRoutes.get("/", async (req, res) => {
           }
         }
       } catch (e: any) {
-      
         console.error("Erro na verificação do token (Admin):", e.message);
       }
     }
@@ -176,8 +166,8 @@ gameRoutes.get("/", async (req, res) => {
           .trim()
           .normalize("NFD") 
           .replace(/[\u0300-\u036f]/g, "") 
-          .toUpperCase() 
-      )
+          .toUpperCase()
+       )
       .filter(Boolean); 
 
     if (tierList.length > 0) {
@@ -185,19 +175,19 @@ gameRoutes.get("/", async (req, res) => {
     }
   }
 
- if (mechanics && String(mechanics).trim()) {
+  if (mechanics && String(mechanics).trim()) {
     const mechanicsList = String(mechanics)
       .split(",")
       .map((m) => m.trim())
-      .filter(Boolean); 
+      .filter(Boolean);
 
     if (mechanicsList.length > 0) {
       where.mechanics = { hasSome: mechanicsList };
     }
   }
 
-  let orderByCondition: any = { title: "asc" }; 
-
+  let orderByCondition: any = { title: "asc" };
+  
   if (sortParam === "Z-A") {
     orderByCondition = { title: "desc" };
   } else if (sortParam === "TOP_RATED") {
@@ -226,7 +216,6 @@ gameRoutes.get("/", async (req, res) => {
           (g.allowOriginalRental === true || copiesCount === 0));
 
       const { copies, _count, ...rest } = g as any;
-
       return {
         ...rest,
         copiesCount,
@@ -255,11 +244,9 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
     if (!parsedLudopediaId || Number.isNaN(parsedLudopediaId)) {
       return res.status(400).json({ error: "ludopediaId inválido." });
     }
-
     if (!cleanTitle) {
       return res.status(400).json({ error: "Título é obrigatório." });
     }
-
     if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
       return res.status(400).json({ error: "Preço inválido." });
     }
@@ -287,10 +274,8 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
     }
 
     const details = await getLudopediaGameDetails(parsedLudopediaId);
-
     let finalDescription =
       bodyDescription?.toString()?.trim() || details?.description || "";
-
     let finalMinPlayers = details?.minPlayers || 1;
     let finalMaxPlayers = details?.maxPlayers ?? null;
     let finalMinAge = details?.minAge || 0;
@@ -301,18 +286,14 @@ gameRoutes.post("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
       const searchResult = await searchBGG(cleanTitle, {
         year: details?.yearPublished ?? null,
       });
-
       if (searchResult && searchResult.confidence >= 85) {
         const bggDetails = await getBGGDetails(searchResult.id);
-
         if (bggDetails?.description?.trim()) {
           const translated = await translateToPT(bggDetails.description);
-
           if (translated?.trim()) {
             finalDescription = translated.trim();
           }
         }
-
         finalMinPlayers = details?.minPlayers ?? bggDetails?.minPlayers ?? 1;
         finalMaxPlayers = details?.maxPlayers ?? bggDetails?.maxPlayers ?? null;
         finalMinAge = details?.minAge ?? bggDetails?.minAge ?? 0;
@@ -362,6 +343,7 @@ gameRoutes.get("/home", async (_req, res) => {
         (availableCopiesCount === 0 &&
           g.available === true &&
           (g.allowOriginalRental === true || copiesCount === 0));
+
       const { copies, _count, ...rest } = g;
       return { ...rest, copiesCount, availableCopiesCount, isAvailableNow };
     };
@@ -518,8 +500,8 @@ gameRoutes.get("/home", async (_req, res) => {
 gameRoutes.get("/:id/components", ensureAuthenticated, async (req, res) => {
   try {
     const id = requireSingleParam(req.params.id, "id");
-
     const game = await prisma.game.findUnique({ where: { id } });
+
     if (!game) {
       return res.status(404).json({ error: "Jogo não encontrado" });
     }
@@ -550,7 +532,6 @@ gameRoutes.post(
       if (!name) {
         return res.status(400).json({ error: "Nome é obrigatório" });
       }
-
       if (!Number.isFinite(quantity) || quantity < 1) {
         return res.status(400).json({ error: "Quantidade inválida" });
       }
@@ -575,7 +556,6 @@ gameRoutes.post(
           .status(409)
           .json({ error: "Esse componente já existe. Edite a quantidade." });
       }
-
       console.error(err);
       return res.status(500).json({ error: "Erro ao adicionar componente" });
     }
@@ -593,7 +573,6 @@ gameRoutes.patch(
         req.params.componentId,
         "componentId"
       );
-
       const name =
         req.body?.name !== undefined ? String(req.body.name).trim() : undefined;
       const quantity =
@@ -608,14 +587,12 @@ gameRoutes.patch(
       }
 
       const data: any = {};
-
       if (name !== undefined) {
         if (!name) {
           return res.status(400).json({ error: "Nome inválido" });
         }
         data.name = name;
       }
-
       if (quantity !== undefined) {
         if (!Number.isFinite(quantity) || quantity < 1) {
           return res.status(400).json({ error: "Quantidade inválida" });
@@ -635,7 +612,6 @@ gameRoutes.patch(
           .status(409)
           .json({ error: "Já existe um componente com esse nome." });
       }
-
       console.error(err);
       return res.status(500).json({ error: "Erro ao atualizar componente" });
     }
@@ -677,6 +653,7 @@ gameRoutes.delete(
 gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
     const id = requireSingleParam(req.params.id, "id");
+
     const {
       title,
       price,
@@ -695,7 +672,6 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
     if (typeof available === "boolean") data.available = available;
     if (typeof isVisible === "boolean") data.isVisible = isVisible;
     
-  
     if (typeof isActive === "boolean") {
       data.isActive = isActive;
       data.inactivationReason = isActive ? null : inactivationReason;
@@ -724,11 +700,9 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
     return res.json(updated);
   } catch (err: any) {
     console.error("Erro ao atualizar jogo:", err);
-
     if (err?.code === "P2025") {
       return res.status(404).json({ error: "Jogo não encontrado" });
     }
-
     return res.status(500).json({ error: "Erro ao atualizar jogo" });
   }
 });
@@ -795,11 +769,9 @@ gameRoutes.delete("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => 
     });
   } catch (err: any) {
     console.error("Erro ao excluir jogo:", err);
-
     if (err?.code === "P2025") {
       return res.status(404).json({ error: "Jogo não encontrado" });
     }
-
     return res.status(500).json({ error: "Erro ao excluir jogo" });
   }
 });
@@ -885,7 +857,6 @@ gameRoutes.post(
       }
 
       const game = await prisma.game.findUnique({ where: { id } });
-
       if (!game) {
         return res.status(404).json({ error: "Jogo não encontrado" });
       }
@@ -900,7 +871,7 @@ gameRoutes.post(
 
       if (!hasReturnedRental) {
         return res.status(403).json({
-          error: "Você só pode avaliar jogos que já alugou e devolveu.",
+          error: "Você pode avaliar jogos que já alugou e devolveu.",
           code: "CANNOT_RATE",
         });
       }
@@ -923,7 +894,6 @@ gameRoutes.post(
         where: { gameId: id },
         _avg: { value: true },
       });
-
       const count = await prisma.gameRating.count({
         where: { gameId: id },
       });
@@ -954,7 +924,6 @@ gameRoutes.post(
 gameRoutes.get("/:id/can-rate", ensureAuthenticated, async (req, res) => {
   try {
     const id = requireSingleParam(req.params.id, "id");
-
     const rental = await prisma.rental.findFirst({
       where: {
         userId: req.user.id,
@@ -1000,6 +969,7 @@ gameRoutes.post("/:id/sync-description", ensureAuthenticated, ensureAdmin, async
     }
 
     return res.json({ description: "" });
+
   } catch (error) {
     return res.status(500).json({ error: "Erro interno ao buscar descrição na API externa." });
   }
@@ -1025,10 +995,12 @@ gameRoutes.post("/:id/sync-mechanics", ensureAuthenticated, ensureAdmin, async (
         where: { id },
         data: { mechanics: ludoDetails.mechanics },
       });
+
       return res.json({ message: "Mecânicas sincronizadas!", mechanics: updatedGame.mechanics });
     }
 
     return res.status(404).json({ error: "Nenhuma mecânica encontrada para este jogo na Ludopedia." });
+
   } catch (error) {
     return res.status(500).json({ error: "Erro interno ao buscar mecânicas na API externa." });
   }

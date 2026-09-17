@@ -1,13 +1,13 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken"; 
+
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { verifySuapCredentials } from "../services/suap.service";
 import { sendVerificationEmail } from "../services/email.service";
+import { signUserToken, buildUserResponse } from "../lib/auth.utils";
 
 const router = Router();
-
 const IFMA_DOMAINS = ["@acad.ifma.edu.br", "@ifma.edu.br"];
 
 function gen6() {
@@ -22,46 +22,7 @@ function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
 }
 
-function signUserToken(userId: string, role: string) {
-  return jwt.sign(
-    { role },
-    process.env.JWT_SECRET || "secret_fallback",
-    {
-      subject: userId,
-      expiresIn: "7d",
-    }
-  );
-}
-
-function buildUserResponse(user: any) {
-  return {
-    id: user.id,
-    nome: user.name,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    cpf: user.cpf || null,
-    address: user.address || null,
-    role: user.role,
-    emailVerified: user.emailVerified,
-    phoneVerified: user.phoneVerified,
-    points: user.points,
-    level: user.level,
-    authProvider: user.authProvider,
-    avatar: user.avatar,
-    picture: user.picture,
-    registrationStatus: user.registrationStatus,
-    rejectReason: user.rejectReason,
-    documentFrontImage: user.documentFrontImage,
-    documentBackImage: user.documentBackImage,
-    addressProof: user.addressProof,
-    matricula: user.matricula || null,
-    isAcademicVerified: user.isAcademicVerified || false,
-  };
-}
-
 router.post("/register", async (req, res) => {
- 
   const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy, isGoogle } = req.body;
 
   try {
@@ -159,7 +120,7 @@ router.post("/register", async (req, res) => {
         user: buildUserResponse(user),
       });
     }
-   
+
     await prisma.pendingRegistration.deleteMany({
       where: { createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
@@ -168,6 +129,7 @@ router.post("/register", async (req, res) => {
       where: { email: cleanEmail },
       select: { id: true },
     });
+
     if (emailExists) {
       return res.status(400).json({ error: "Este e-mail já está em uso." });
     }
@@ -176,6 +138,7 @@ router.post("/register", async (req, res) => {
       where: { matricula: cleanMatricula },
       select: { id: true },
     });
+
     if (matriculaExists) {
       return res.status(400).json({
         error: "Esta matrícula já está associada a uma conta.",
@@ -192,7 +155,7 @@ router.post("/register", async (req, res) => {
         return res.status(400).json({ error: "Telefone já cadastrado." });
       }
     }
-  
+
     const pendingConflict = await prisma.pendingRegistration.findFirst({
       where: {
         NOT: { email: cleanEmail },
@@ -214,7 +177,6 @@ router.post("/register", async (req, res) => {
     });
 
     if (pendingByEmail && !isPendingExpired(pendingByEmail.createdAt)) {
-
       if (pendingByEmail.lastEmailSentAt) {
         const elapsed = Date.now() - pendingByEmail.lastEmailSentAt.getTime();
         const waitMs = 30_000 - elapsed;
@@ -246,7 +208,6 @@ router.post("/register", async (req, res) => {
         },
       });
 
-   
       await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
       return res.status(200).json({
@@ -276,13 +237,11 @@ router.post("/register", async (req, res) => {
       },
     });
 
-
     await sendVerificationEmail(cleanEmail, cleanName, emailCode);
 
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail institucional.",
     });
-
   } catch (err: any) {
     console.error("ERRO /ifma/register:", err);
     return res.status(400).json({ 
@@ -325,14 +284,12 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
         code: "SUAP_INVALID_CREDENTIALS",
       });
     }
-
     if (result.reason === "TIMEOUT") {
       return res.status(504).json({
         error: "O SUAP não respondeu a tempo. Tente novamente em instantes.",
         code: "SUAP_TIMEOUT",
       });
     }
-
     return res.status(503).json({
       error: "Não foi possível conectar ao SUAP. Tente novamente mais tarde.",
       code: "SUAP_UNAVAILABLE",
@@ -357,7 +314,7 @@ router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
   });
 
   return res.json({
-    message: "Vínculo acadêmico verificado com sucesso! ✅",
+    message: "Vínculo acadêmico verificado com sucesso!",
     isAcademicVerified: true,
     academicVerifiedAt: updatedUser.academicVerifiedAt,
     matricula: updatedUser.matricula,

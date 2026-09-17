@@ -18,12 +18,11 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
   try {
     const decoded = verify(
       token,
-      process.env.JWT_SECRET || "secret_fallback"
+      process.env.JWT_SECRET as string 
     ) as IPayload;
 
     const userId = decoded.sub;
 
-    
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -41,7 +40,6 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
       return res.status(401).json({ error: "Utilizador não encontrado" });
     }
 
-   
     if (user.isBlocked) {
       return res.status(403).json({
         error: "Sua conta foi bloqueada por um administrador.",
@@ -49,7 +47,6 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
       });
     }
 
-   
     const hasVerifiedEmail = !!user.email && !!user.emailVerified;
     const hasVerifiedPhone = !!user.phone && !!user.phoneVerified;
 
