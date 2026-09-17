@@ -6,6 +6,7 @@ import { ensureAdmin } from "../middlewares/ensureAdmin";
 import { ensureString } from "../utils/params";
 import { notifyUser } from "../services/notify.service";
 import { logAdminAction } from "../services/adminLog.service";
+import { generateSeasonCouponsForUsers } from "../services/engagement.service"; // <-- Import adicionado
 
 export const adminUserRoutes = Router();
 
@@ -26,7 +27,6 @@ adminUserRoutes.patch("/:id/block", ensureAuthenticated, ensureAdmin, async (req
       where: { id },
       data: { isBlocked }
     });
-
 
     await logAdminAction(
       req.user.id,
@@ -225,18 +225,12 @@ adminUserRoutes.post("/:id/request-doc", ensureAuthenticated, ensureAdmin, async
   }
 });
 
+
 adminUserRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id);
   if (!id) return res.status(400).json({ error: "ID do usuário é obrigatório." });
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, level: true }
-    });
-
-    if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
-
     const now = new Date();
     const activeSeason = await prisma.season.findFirst({
       where: {
@@ -249,66 +243,21 @@ adminUserRoutes.post("/:id/generate-coupons", ensureAuthenticated, ensureAdmin, 
       return res.status(400).json({ error: "Nenhuma temporada ativa para gerar recompensas." });
     }
 
-    const rewardLevels = [2, 3, 4, 5];
-    const reachedLevels = rewardLevels.filter((lvl) => lvl <= user.level);
+    const result = await generateSeasonCouponsForUsers([id], activeSeason.id);
 
-    if (reachedLevels.length === 0) {
-      return res.status(400).json({ error: "O usuário ainda não atingiu níveis com recompensa." });
+    if (result.count === 0) {
+      return res.status(400).json({ error: "Todos os cupons pendentes já foram gerados ou o usuário não atingiu novos níveis." });
     }
 
-    const existingCoupons = await prisma.coupon.findMany({
-      where: {
-        userId: id,
-        seasonId: activeSeason.id,
-        type: { startsWith: "REWARD_LEVEL_" }
-      },
-      select: { type: true }
-    });
-
-    const alreadyGeneratedLevels = existingCoupons.map((c) =>
-      parseInt(c.type.replace("REWARD_LEVEL_", ""), 10)
-    );
-
-    const pendingLevels = reachedLevels.filter(
-      (lvl) => !alreadyGeneratedLevels.includes(lvl)
-    );
-
-    if (pendingLevels.length === 0) {
-      return res.status(400).json({ error: "Todos os cupons pendentes já foram gerados para este usuário." });
-    }
-
-    const seasonRewards = (activeSeason.rewards as any) || {};
-    const newCoupons = [];
-
-    for (const lvl of pendingLevels) {
-      const rewardConfig = seasonRewards[`nivel${lvl}`]?.cuponsGerados?.[0] || {};
-      const valorDesconto = rewardConfig.valor || 100;
-      const descricao = rewardConfig.descricao || `Recompensa do Nível ${lvl}`;
-
-      newCoupons.push({
-        userId: id,
-        seasonId: activeSeason.id,
-        code: `NVL${lvl}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-        type: `REWARD_LEVEL_${lvl}`,
-        value: valorDesconto,
-        description: descricao,
-        expiresAt: activeSeason.endDate,
-        isUsed: false,
-      });
-    }
-
-    await prisma.coupon.createMany({
-      data: newCoupons
-    });
-
-    await logAdminAction(req.user.id, "GENERATE_COUPONS", id, { count: newCoupons.length });
+    await logAdminAction(req.user.id, "GENERATE_COUPONS", id, { count: result.count });
 
     return res.json({
-      message: `${newCoupons.length} cupom(ns) gerado(s) com sucesso.`,
-      levelsGenerated: pendingLevels
+      message: `${result.count} cupom(ns) gerado(s) com sucesso.`,
+      levelsGenerated: result.generatedLevelsPerUser[id] || []
     });
-  } catch (err) {
+
+  } catch (err: any) {
     console.error("Erro ao gerar cupons:", err);
-    return res.status(500).json({ error: "Erro ao gerar cupons." });
+    return res.status(500).json({ error: err.message || "Erro ao gerar cupons." });
   }
 });
