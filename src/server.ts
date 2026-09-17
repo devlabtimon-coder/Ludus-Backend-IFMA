@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import path from "path";
@@ -30,32 +30,28 @@ import { seasonRoutes } from "./routes/season.routes";
 import { maintenanceRoutes } from "./routes/maintenance.routes";
 import { adminLogRoutes } from "./routes/adminLog.routes";
 
-
 if (!process.env.JWT_SECRET) {
-  console.error("ERRO CRÍTICO: JWT_SECRET não está configurado no .env!");
   process.exit(1);
 }
 
 const credentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
-if (!credentialsBase64) {
-  console.error("ERRO: A variável FIREBASE_CREDENTIALS_BASE64 não está configurada!");
-} else {
+if (credentialsBase64) {
   const serviceAccountJson = Buffer.from(credentialsBase64, "base64").toString("utf-8");
   const serviceAccount = JSON.parse(serviceAccountJson);
   admin.initializeApp({
     credential: cert(serviceAccount),
   });
-  console.log("Firebase Admin inicializado com sucesso via Variável de Ambiente!");
 }
 
 const app = express();
 
-// AVISA O EXPRESS QUE ELE ESTÁ ATRÁS DE UM PROXY (Essencial para o Rate Limiter não bloquear o IP do Proxy)
 app.set("trust proxy", 1);
 
-startRentalReminderJob();
-startRegistrationReminderJob();
-startSeasonJob();
+if (process.env.RUN_CRONS === "true" || process.env.NODE_ENV !== "production") {
+  startRentalReminderJob();
+  startRegistrationReminderJob();
+  startSeasonJob();
+}
 
 app.use(helmet());
 
@@ -68,14 +64,13 @@ app.use(cors({
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(new Error("Bloqueado pela política de CORS"));
+      callback(new Error("CORS_BLOCKED"));
     }
   },
   credentials: true
 }));
 
 app.use(express.json());
-
 app.use(globalLimiter);
 
 app.get("/health", (_req, res) => {
@@ -87,7 +82,6 @@ app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 app.use("/auth", authRoutes);
 if (process.env.IFMA_MODE === "true") {
   app.use("/auth/ifma", ifmaRoutes);
-  console.log("Modo IFMA ativado, rotas acadêmicas registradas.");
 }
 
 app.use("/games", gameRoutes);
@@ -109,10 +103,19 @@ app.use("/admin/users", adminUserRoutes);
 app.use("/admin/logs", adminLogRoutes);
 
 app.get("/", (_req, res) => {
-  res.send("API Ludus rodando 🎲");
+  res.send("API Ludus rodando");
+});
+
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (err.name === 'PrismaClientKnownRequestError') {
+    return res.status(400).json({ error: "Erro de banco de dados ou restrição violada." });
+  }
+
+  return res.status(500).json({ 
+    error: "Erro interno no servidor.", 
+    message: process.env.NODE_ENV !== 'production' ? err.message : undefined 
+  });
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Servidor rodando em http://0.0.0.0:${PORT}`);
-});
+app.listen(PORT, "0.0.0.0", () => {});
