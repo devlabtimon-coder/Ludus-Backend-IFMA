@@ -161,34 +161,49 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
 
 adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
-    const users = await prisma.user.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        isBlocked: true,
-        createdAt: true,
-        selfieWithId: true,
-        enrollmentProof: true,
-        cpf: true,
-        address: true,
-        avatar: true,  
-        picture: true, 
-        registrationStatus: true,
-        documentFile: true, 
-        addressProof: true,
-        rejectReason: true,
-        points: true,
-        totalRentalsCount: true,
-        clientCategory: true,
-        matricula: true,
-      }
-    });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const skip = (page - 1) * limit;
 
-    return res.json(users);
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isBlocked: true,
+          createdAt: true,
+          selfieWithId: true,
+          enrollmentProof: true,
+          cpf: true,
+          address: true,
+          avatar: true,  
+          picture: true, 
+          registrationStatus: true,
+          documentFile: true, 
+          addressProof: true,
+          rejectReason: true,
+          points: true,
+          totalRentalsCount: true,
+          clientCategory: true,
+          matricula: true,
+        }
+      }),
+      prisma.user.count()
+    ]);
+
+    return res.json({
+      data: users,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     console.error("Erro ao listar usuários:", err);
     return res.status(500).json({ error: "Erro ao listar usuários." });

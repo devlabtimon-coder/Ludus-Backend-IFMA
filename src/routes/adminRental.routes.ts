@@ -17,10 +17,9 @@ function getParam(param: string | string[] | undefined): string {
 }
 
 adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
-  const { status, q, overdue } = req.query;
-
+  const { status, q, overdue, page: pageQuery, limit: limitQuery } = req.query;
   const where: any = {};
-
+  
   if (typeof status === "string" && status !== "ALL") {
     if (!Object.values(RentalStatus).includes(status as RentalStatus)) {
       return res.status(400).json({ error: "status inválido" });
@@ -44,25 +43,34 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
     ];
   }
 
+  const page = Math.max(1, Number(pageQuery) || 1);
+  const limit = Math.min(100, Math.max(1, Number(limitQuery) || 50));
+  const skip = (page - 1) * limit;
+
   try {
-    const rentals = await prisma.rental.findMany({
-      where,
-      orderBy: { startDate: "desc" },
-      include: {
-        user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              avatar: true, 
-              picture: true 
-             }
-         },
-        game: { select: { id: true, title: true, cover: true, price: true } },
-        copy: { select: { id: true, code: true, number: true, condition: true } },
-      },
-    });
+    const [rentals, total] = await Promise.all([
+      prisma.rental.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { startDate: "desc" },
+        include: {
+          user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                avatar: true, 
+                picture: true
+                }
+           },
+          game: { select: { id: true, title: true, cover: true, price: true } },
+          copy: { select: { id: true, code: true, number: true, condition: true } },
+        },
+      }),
+      prisma.rental.count({ where })
+    ]);
 
     const mapped = rentals.map((r) => ({
       ...r,
@@ -86,7 +94,13 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         : null,
     }));
 
-    return res.json(mapped);
+    return res.json({
+      data: mapped,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     console.error("Erro ao listar aluguéis (admin):", err);
     return res.status(500).json({ error: "Erro ao listar aluguéis" });
