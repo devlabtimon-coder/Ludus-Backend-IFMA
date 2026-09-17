@@ -7,11 +7,13 @@ export const adminReportRoutes = Router();
 
 adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   try {
-    const period = (req.query.period as string) || 'month'; 
+    const period = (req.query.period as string) || 'month';
     const now = new Date();
     let startDate = new Date();
 
-    if (period === 'week') {
+    if (period === 'day') {
+      startDate.setHours(0, 0, 0, 0); 
+    } else if (period === 'week') {
       startDate.setDate(now.getDate() - 7);
     } else if (period === 'year') {
       startDate.setFullYear(now.getFullYear() - 1);
@@ -19,19 +21,16 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       startDate.setDate(now.getDate() - 30);
     }
 
-  
     const totalRentals = await prisma.rental.count({ where: { startDate: { gte: startDate } } });
     const uniqueGamesRented = (await prisma.rental.groupBy({ by: ['gameId'], where: { startDate: { gte: startDate } } })).length;
     const totalUsers = Math.max(1, await prisma.user.count({ where: { role: 'USER' } }));
     
-   
     const totalCopies = await prisma.gameCopy.count();
     const availableCopies = await prisma.gameCopy.count({ where: { available: true } });
     const maintenanceCopies = await prisma.gameCopy.count({ where: { available: false } });
     const rentedCopies = await prisma.rental.count({ where: { status: { in: ['ACTIVE', 'PENDING'] } } });
     const occupancyRate = totalCopies > 0 ? Math.round((rentedCopies / totalCopies) * 100) : 0;
 
-  
     const rentalsGrouped = await prisma.rental.groupBy({
       by: ['gameId'],
       where: { startDate: { gte: startDate } },
@@ -48,7 +47,6 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         count: g._count.gameId
       };
     }));
-
     
     const activeUsersCount = await prisma.rental.groupBy({
       by: ['userId'],
@@ -79,7 +77,6 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       };
     }));
 
-   
     const recentRentals = await prisma.rental.findMany({
       where: { startDate: { gte: startDate } },
       orderBy: { startDate: 'desc' },
@@ -101,10 +98,16 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       status: r.status === 'RETURNED' ? 'Concluído' : r.status === 'ACTIVE' ? 'Em Andamento' : r.status === 'CANCELED' ? 'Cancelado' : 'Pendente'
     }));
 
-   
     const evolution = [];
-    if (period === 'week') {
-     
+    
+    if (period === 'day') {
+      for (let i = 8; i <= 19; i++) {
+        const dStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), i, 0, 0);
+        const dEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), i + 1, 0, 0);
+        const count = await prisma.rental.count({ where: { startDate: { gte: dStart, lt: dEnd } } });
+        evolution.push({ label: `${i}h`, rentals: count });
+      }
+    } else if (period === 'week') {
       for (let i = 6; i >= 0; i--) {
         const dStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
         const dEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i + 1);
@@ -112,7 +115,6 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         evolution.push({ label: dStart.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''), rentals: count });
       }
     } else if (period === 'year') {
-    
       for (let i = 11; i >= 0; i--) {
         const dStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const dEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
@@ -120,7 +122,6 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
         evolution.push({ label: dStart.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), rentals: count });
       }
     } else {
-      
       for (let i = 4; i >= 0; i--) {
         const dStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 6) - 6);
         const dEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 6));
@@ -131,7 +132,7 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
 
     res.json({
       kpis: {
-        totalRentals: { value: totalRentals.toString(), tag: period === 'week' ? 'Últimos 7 dias' : period === 'year' ? 'Últimos 12 meses' : 'Últimos 30 dias' },
+        totalRentals: { value: totalRentals.toString(), tag: period === 'day' ? 'Hoje' : period === 'week' ? 'Últimos 7 dias' : period === 'year' ? 'Últimos 12 meses' : 'Últimos 30 dias' },
         uniqueGames: { value: uniqueGamesRented.toString(), tag: 'Jogos distintos' },
         avgRentalDays: { value: '3.0', subtitle: 'Dias por aluguel' },
         engagementRate: { value: `${Math.round((activeUsersCount / totalUsers) * 100)}%`, tag: 'Usuários ativos' },
@@ -147,9 +148,9 @@ adminReportRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
       },
       engagement: {
         activeUsers: activeUsersCount,
-        activeUsersChange: 0, 
+        activeUsersChange: 0,
         inactiveUsers: totalUsers - activeUsersCount,
-        inactiveUsersChange: 0, 
+        inactiveUsersChange: 0,
         avgRentalsPerUser: Math.round((totalRentals / Math.max(1, activeUsersCount)) * 10) / 10,
         newUsers,
         topUsers
