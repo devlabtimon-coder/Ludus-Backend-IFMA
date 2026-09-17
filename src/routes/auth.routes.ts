@@ -3,15 +3,15 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { getAuth } from "firebase-admin/auth";
 import { randomInt } from "crypto";
+
 import { prisma } from "../lib/prisma";
-import { login, loginWithGoogle } from "../services/auth.service";
+import { login, loginWithGoogle, verifyGoogleToken } from "../services/auth.service";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
 import { loginLimiter, otpLimiter } from "../middlewares/rateLimiter";
 
 const router = Router();
 
 function gen6() {
-
   return randomInt(100000, 1000000).toString();
 }
 
@@ -24,29 +24,7 @@ function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > PENDING_TTL_MS;
 }
 
-function buildUserResponse(user: {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  cpf: string | null;
-  address: string | null;
-  role: string;
-  emailVerified: boolean;
-  phoneVerified: boolean;
-  points: number;
-  level: number;
-  authProvider: string;
-  avatar: string | null;
-  picture: string | null;
-  registrationStatus?: string | null;
-  rejectReason?: string | null;
-  documentFrontImage?: string | null;
-  documentBackImage?: string | null;
-  addressProof?: string | null;
-  matricula?: string | null;
-  isAcademicVerified?: boolean | null;
-}) {
+function buildUserResponse(user: any) {
   return {
     id: user.id,
     nome: user.name,
@@ -86,7 +64,6 @@ function signUserToken(userId: string, role: string) {
 
 router.post("/login", loginLimiter, async (req, res) => {
   const { email, senha } = req.body;
-
   try {
     const data = await login(email, senha);
     return res.json(data);
@@ -97,18 +74,15 @@ router.post("/login", loginLimiter, async (req, res) => {
 
 router.post("/google", loginLimiter, async (req, res) => {
   const token = req.body.token || req.body.idToken;
-
   if (!token) {
     return res.status(400).json({ error: "Token é obrigatório" });
   }
-
   try {
     const result = await loginWithGoogle(token);
     return res.json(result);
   } catch (err: any) {
     const prismaCode = err?.code;
     const msg = err?.message || "Falha ao autenticar com Google";
-
     const isAuthError =
       msg.toLowerCase().includes("token") ||
       msg.toLowerCase().includes("jwt") ||
@@ -118,7 +92,6 @@ router.post("/google", loginLimiter, async (req, res) => {
     if (isAuthError) {
       return res.status(401).json({ error: msg });
     }
-
     return res.status(500).json({
       error: msg,
       prismaCode,
@@ -127,7 +100,7 @@ router.post("/google", loginLimiter, async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula, isGoogle } = req.body;
+  const { name, email, phone, senha, acceptedTerms, acceptedPrivacy, cpf, address, matricula, googleToken } = req.body;
 
   try {
     const cleanName = (name || "").trim();
@@ -137,37 +110,45 @@ router.post("/register", async (req, res) => {
     const cleanAddress = (address || "").trim();
     const cleanMatricula = (matricula || "").trim();
 
-    if (!cleanMatricula) { 
-      return res.status(400).json({ error: "Matrícula é obrigatória." });
+    if (!cleanMatricula) {
+       return res.status(400).json({ error: "Matrícula é obrigatória." });
     }
-
-    if (!cleanAddress) { 
-      return res.status(400).json({ error: "Endereço é obrigatório." });
+    if (!cleanAddress) {
+       return res.status(400).json({ error: "Endereço é obrigatório." });
     }
-
     if(!cleanCpf) {
       return res.status(400).json({ error: "Cpf é obrigatório." });
-    };
-
+    }
     if (!cleanName) {
       return res.status(400).json({ error: "Nome é obrigatório." });
     }
-
     if (!cleanEmail) {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
-
-    if ((!senha || senha.length < 6) && !isGoogle) {
+    if ((!senha || senha.length < 6) && !googleToken) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
-
     if (!acceptedTerms || !acceptedPrivacy) {
       return res.status(400).json({
         error: "Você precisa aceitar os Termos de Uso e a Política de Privacidade.",
       });
     }
 
-    if (isGoogle) {
+    if (googleToken) {
+      try {
+        const googlePayload = await verifyGoogleToken(googleToken);
+        const googleEmail = googlePayload.email?.toLowerCase();
+        
+        if (!googleEmail || googleEmail !== cleanEmail) {
+          return res.status(401).json({ error: "O e-mail fornecido não pertence a este token do Google." });
+        }
+        if (googlePayload.email_verified === false) {
+          return res.status(401).json({ error: "A conta Google não possui e-mail verificado." });
+        }
+      } catch (err: any) {
+        return res.status(401).json({ error: err.message });
+      }
+
       if (cleanPhone) {
         const phoneExists = await prisma.user.findFirst({
           where: { phone: cleanPhone, email: { not: cleanEmail } },
@@ -178,7 +159,6 @@ router.post("/register", async (req, res) => {
       }
 
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      
       const hash = (senha && senha.length >= 6) ? await bcrypt.hash(senha, 10) : null;
 
       if (user) {
@@ -236,7 +216,6 @@ router.post("/register", async (req, res) => {
     const emailExists = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
-
     if (emailExists) {
       return res.status(400).json({ error: "Este e-mail já está em uso." });
     }
@@ -245,7 +224,6 @@ router.post("/register", async (req, res) => {
       const phoneExists = await prisma.user.findUnique({
         where: { phone: cleanPhone },
       });
-
       if (phoneExists) {
         return res.status(400).json({ error: "Telefone já cadastrado." });
       }
@@ -264,7 +242,6 @@ router.post("/register", async (req, res) => {
         if (pendingExists.lastEmailSentAt) {
           const elapsed = Date.now() - pendingExists.lastEmailSentAt.getTime();
           const waitMs = 30_000 - elapsed;
-
           if (waitMs > 0) {
             const retryAfterSec = Math.ceil(waitMs / 1000);
             return res.status(429).json({
@@ -287,7 +264,7 @@ router.post("/register", async (req, res) => {
             senhaHash: hash,
             acceptedTerms,
             acceptedPrivacy,
-            cpf: cleanCpf,        
+            cpf: cleanCpf,            
             address: cleanAddress,
             matricula: cleanMatricula,
             emailVerificationCode: emailCode,
@@ -332,6 +309,7 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail.",
     });
+
   } catch (err: any) {
     return res.status(400).json({ error: err.message || "Erro ao iniciar cadastro" });
   }
@@ -339,7 +317,6 @@ router.post("/register", async (req, res) => {
 
 router.post("/verify-email", otpLimiter, async (req, res) => {
   const { email, code } = req.body;
-
   const cleanEmail = (email || "").trim().toLowerCase();
   const cleanCode = cleanDigits(code);
 

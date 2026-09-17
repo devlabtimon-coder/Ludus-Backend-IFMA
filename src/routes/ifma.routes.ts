@@ -1,18 +1,18 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { randomInt } from "crypto"; 
+import { randomInt } from "crypto";
 
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { verifySuapCredentials } from "../services/suap.service";
 import { sendVerificationEmail } from "../services/email.service";
+import { verifyGoogleToken } from "../services/auth.service"; 
 
 const router = Router();
 const IFMA_DOMAINS = ["@acad.ifma.edu.br", "@ifma.edu.br"];
 
 function gen6() {
-
   return randomInt(100000, 1000000).toString();
 }
 
@@ -63,7 +63,7 @@ function buildUserResponse(user: any) {
 }
 
 router.post("/register", async (req, res) => {
-  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy, isGoogle } = req.body;
+  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy, googleToken } = req.body;
 
   try {
     const cleanName = (name || "").trim();
@@ -74,7 +74,6 @@ router.post("/register", async (req, res) => {
     if (!cleanName) {
       return res.status(400).json({ error: "Nome é obrigatório." });
     }
-
     if (!cleanEmail) {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
@@ -98,17 +97,30 @@ router.post("/register", async (req, res) => {
       });
     }
     
-    if ((!senha || senha.length < 6) && !isGoogle) {
+    if ((!senha || senha.length < 6) && !googleToken) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
-
     if (!acceptedTerms || !acceptedPrivacy) {
       return res.status(400).json({
         error: "Você precisa aceitar os Termos de Uso e a Política de Privacidade.",
       });
     }
 
-    if (isGoogle) {
+    if (googleToken) {
+      try {
+        const googlePayload = await verifyGoogleToken(googleToken);
+        const googleEmail = googlePayload.email?.toLowerCase();
+        
+        if (!googleEmail || googleEmail !== cleanEmail) {
+          return res.status(401).json({ error: "O e-mail fornecido não pertence a este token do Google." });
+        }
+        if (googlePayload.email_verified === false) {
+          return res.status(401).json({ error: "A conta Google não possui e-mail verificado." });
+        }
+      } catch (err: any) {
+        return res.status(401).json({ error: err.message });
+      }
+
       if (cleanPhone) {
         const phoneExists = await prisma.user.findFirst({
           where: { phone: cleanPhone, email: { not: cleanEmail } },
@@ -169,7 +181,6 @@ router.post("/register", async (req, res) => {
       where: { email: cleanEmail },
       select: { id: true },
     });
-
     if (emailExists) {
       return res.status(400).json({ error: "Este e-mail já está em uso." });
     }
@@ -178,7 +189,6 @@ router.post("/register", async (req, res) => {
       where: { matricula: cleanMatricula },
       select: { id: true },
     });
-
     if (matriculaExists) {
       return res.status(400).json({
         error: "Esta matrícula já está associada a uma conta.",
@@ -208,8 +218,8 @@ router.post("/register", async (req, res) => {
 
     if (pendingConflict) {
       return res.status(400).json({ 
-        error: "Esta matrícula ou telefone já estão em processo de verificação por outra pessoa. Tente novamente mais tarde." 
-      });
+        error: "Esta matrícula ou telefone já estão em processo de verificação por outra pessoa. Tente novamente mais tarde."
+       });
     }
 
     const pendingByEmail = await prisma.pendingRegistration.findUnique({
@@ -282,8 +292,8 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({
       message: "Cadastro iniciado. Verifique seu e-mail institucional.",
     });
+
   } catch (err: any) {
-    console.error("ERRO /ifma/register:", err);
     return res.status(400).json({ 
       error: err.message || "Erro interno ao iniciar cadastro. Verifique os dados fornecidos." 
     });
@@ -382,7 +392,6 @@ router.get("/status", ensureAuthenticated, async (req, res) => {
       matricula: user.matricula,
     });
   } catch (err) {
-    console.error("Erro em /ifma/status:", err);
     return res.status(500).json({ error: "Erro interno." });
   }
 });
