@@ -1,11 +1,13 @@
 import cron from "node-cron";
 import { NotificationType } from "@prisma/client";
+import { randomInt } from "crypto"; 
 import { prisma } from "../lib/prisma";
 import { notifyUser } from "../services/notify.service";
 import { sendRegistrationReminderEmail } from "../services/email.service";
 
 function gen6() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+ 
+  return randomInt(100000, 1000000).toString();
 }
 
 export function startRegistrationReminderJob() {
@@ -43,7 +45,6 @@ export function startRegistrationReminderJob() {
         route = "/suap-verify";
       }
 
-     
       const dateString = now.toISOString().split("T")[0];
       const dedupeKey = `REMIND_REGISTRATION_${user.id}_${dateString}`;
 
@@ -63,9 +64,7 @@ export function startRegistrationReminderJob() {
 
     const pendingRegs = await prisma.pendingRegistration.findMany({
       where: {
-        
         createdAt: { gte: twentyFourHoursAgo, lte: twoHoursAgo },
-   
         lastEmailSentAt: { lte: twoHoursAgo }
       }
     });

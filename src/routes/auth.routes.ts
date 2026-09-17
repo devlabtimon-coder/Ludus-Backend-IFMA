@@ -2,16 +2,17 @@ import jwt from "jsonwebtoken";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { getAuth } from "firebase-admin/auth";
+import { randomInt } from "crypto";
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle } from "../services/auth.service";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
 import { loginLimiter, otpLimiter } from "../middlewares/rateLimiter";
-import { signUserToken, buildUserResponse } from "../lib/auth.utils";
 
 const router = Router();
 
 function gen6() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+
+  return randomInt(100000, 1000000).toString();
 }
 
 function cleanDigits(v: any) {
@@ -21,6 +22,66 @@ function cleanDigits(v: any) {
 function isPendingExpired(createdAt: Date) {
   const PENDING_TTL_MS = 24 * 60 * 60 * 1000;      
   return Date.now() - createdAt.getTime() > PENDING_TTL_MS;
+}
+
+function buildUserResponse(user: {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  cpf: string | null;
+  address: string | null;
+  role: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  points: number;
+  level: number;
+  authProvider: string;
+  avatar: string | null;
+  picture: string | null;
+  registrationStatus?: string | null;
+  rejectReason?: string | null;
+  documentFrontImage?: string | null;
+  documentBackImage?: string | null;
+  addressProof?: string | null;
+  matricula?: string | null;
+  isAcademicVerified?: boolean | null;
+}) {
+  return {
+    id: user.id,
+    nome: user.name,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    cpf: user.cpf,
+    address: user.address,
+    role: user.role,
+    emailVerified: user.emailVerified,
+    phoneVerified: user.phoneVerified,
+    points: user.points,
+    level: user.level,
+    authProvider: user.authProvider,
+    avatar: user.avatar,
+    picture: user.picture,
+    registrationStatus: user.registrationStatus,
+    rejectReason: user.rejectReason,
+    documentFrontImage: user.documentFrontImage,
+    documentBackImage: user.documentBackImage,
+    addressProof: user.addressProof,
+    matricula: user.matricula || null,
+    isAcademicVerified: user.isAcademicVerified || false,
+  };
+}
+
+function signUserToken(userId: string, role: string) {
+  return jwt.sign(
+    { role },
+    process.env.JWT_SECRET as string,
+    {
+      subject: userId,
+      expiresIn: "7d",
+    }
+  );
 }
 
 router.post("/login", loginLimiter, async (req, res) => {

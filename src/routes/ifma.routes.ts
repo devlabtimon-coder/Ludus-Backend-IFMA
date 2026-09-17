@@ -1,17 +1,19 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { randomInt } from "crypto"; 
 
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { verifySuapCredentials } from "../services/suap.service";
 import { sendVerificationEmail } from "../services/email.service";
-import { signUserToken, buildUserResponse } from "../lib/auth.utils";
 
 const router = Router();
 const IFMA_DOMAINS = ["@acad.ifma.edu.br", "@ifma.edu.br"];
 
 function gen6() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+
+  return randomInt(100000, 1000000).toString();
 }
 
 function cleanDigits(v: any) {
@@ -20,6 +22,44 @@ function cleanDigits(v: any) {
 
 function isPendingExpired(createdAt: Date) {
   return Date.now() - createdAt.getTime() > 24 * 60 * 60 * 1000;
+}
+
+function signUserToken(userId: string, role: string) {
+  return jwt.sign(
+    { role },
+    process.env.JWT_SECRET as string,
+    {
+      subject: userId,
+      expiresIn: "7d",
+    }
+  );
+}
+
+function buildUserResponse(user: any) {
+  return {
+    id: user.id,
+    nome: user.name,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    cpf: user.cpf || null,
+    address: user.address || null,
+    role: user.role,
+    emailVerified: user.emailVerified,
+    phoneVerified: user.phoneVerified,
+    points: user.points,
+    level: user.level,
+    authProvider: user.authProvider,
+    avatar: user.avatar,
+    picture: user.picture,
+    registrationStatus: user.registrationStatus,
+    rejectReason: user.rejectReason,
+    documentFrontImage: user.documentFrontImage,
+    documentBackImage: user.documentBackImage,
+    addressProof: user.addressProof,
+    matricula: user.matricula || null,
+    isAcademicVerified: user.isAcademicVerified || false,
+  };
 }
 
 router.post("/register", async (req, res) => {
