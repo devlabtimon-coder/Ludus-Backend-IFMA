@@ -50,10 +50,12 @@ if (!credentialsBase64) {
 
 const app = express();
 
+// AVISA O EXPRESS QUE ELE ESTÁ ATRÁS DE UM PROXY (Essencial para o Rate Limiter não bloquear o IP do Proxy)
+app.set("trust proxy", 1);
+
 startRentalReminderJob();
 startRegistrationReminderJob();
 startSeasonJob();
-
 
 app.use(helmet());
 
@@ -82,7 +84,6 @@ app.get("/health", (_req, res) => {
 
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
-
 app.use("/auth", authRoutes);
 if (process.env.IFMA_MODE === "true") {
   app.use("/auth/ifma", ifmaRoutes);
@@ -110,7 +111,6 @@ app.use("/admin/logs", adminLogRoutes);
 app.get("/", (_req, res) => {
   res.send("API Ludus rodando 🎲");
 });
-
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {
