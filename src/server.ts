@@ -88,10 +88,7 @@ app.get("/", (_req, res) => {
   res.send("API Ludus rodando 🎲");
 });
 
-app.get("/users", async (_req, res) => {
-  const users = await prisma.user.findMany();
-  res.json(users);
-});
+
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, "0.0.0.0", () => {
