@@ -70,6 +70,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
   if (holidays.includes(startStr)) {
     return res.status(400).json({ error: "A data de retirada cai em um feriado. A biblioteca estará fechada." });
   }
+
   if (holidays.includes(endStr)) {
     return res.status(400).json({ error: "A data de devolução cai em um feriado. A biblioteca estará fechada." });
   }
@@ -134,7 +135,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     if (activeCount >= 2) {
       return {
         status: 409,
-        body: { error: "Você já possui 2 aluguéis em aberto.", code: "RENTAL_LIMIT_REACHED" },
+        body: { error: "Você possui 2 aluguéis em aberto.", code: "RENTAL_LIMIT_REACHED" },
       } as const;
     }
 
@@ -173,6 +174,7 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     });
 
     const BUFFER_MS = 30 * 60 * 1000; 
+
     const requestedStartMs = startDate.getTime();
     const requestedEndMs = endDate.getTime();
 
@@ -188,10 +190,20 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     let assignedCopyId: string | null | undefined = undefined;
 
     if (copyId) {
-      if (takenCopyIds.includes(String(copyId))) {
+      const targetCopyId = String(copyId);
+      
+      const isValidCopy = availableCopies.some(c => c.id === targetCopyId);
+      if (!isValidCopy) {
+        return { 
+          status: 400, 
+          body: { error: "Exemplar inválido, indisponível ou pertencente a outro jogo.", code: "INVALID_COPY" } 
+        } as const;
+      }
+
+      if (takenCopyIds.includes(targetCopyId)) {
         return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
       }
-      assignedCopyId = String(copyId);
+      assignedCopyId = targetCopyId;
     } else {
       if (game.allowOriginalRental && game.available && !isOriginalTaken) {
         assignedCopyId = null; 
@@ -378,6 +390,7 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
   const copiesCount = await prisma.gameCopy.count({
     where: { gameId: String(gameId), available: true },
   });
+
   const totalCopies = copiesCount + (game.allowOriginalRental && game.available ? 1 : 0);
 
   if (totalCopies === 0) {
@@ -386,6 +399,7 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
 
   const y = parseInt(String(year), 10);
   const m = parseInt(String(month), 10);
+
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
 
   const startOfMonth = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
@@ -403,6 +417,7 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
 
   const holidays = await getHolidaysByYear(y);
   const unavailableDates: string[] = [];
+
   const BUFFER_MS = 30 * 60 * 1000;
   const now = new Date();
 
@@ -422,18 +437,15 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
       for (const minute of [0, 30]) {
         if (hour === 18 && minute === 30) continue;
 
-        // Monta o horário UTC correspondente ao horário comercial de Brasília (+3h)
         const slotStart = new Date(Date.UTC(y, m - 1, day, hour + 3, minute, 0));
         const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
 
         if (slotStart < now) continue;
 
         let conflictingCopies = 0;
-
         for (const r of rentalsThisMonth) {
           const rentalStart = r.startDate.getTime();
           const rentalEndWithBuffer = r.endDate.getTime() + BUFFER_MS;
-
           if (slotStart.getTime() < rentalEndWithBuffer && slotEnd.getTime() > rentalStart) {
             conflictingCopies++;
           }
@@ -473,13 +485,14 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
   const copiesCount = await prisma.gameCopy.count({
     where: { gameId: String(gameId), available: true },
   });
+
   const totalCopies = copiesCount + (game.allowOriginalRental && game.available ? 1 : 0);
 
   const [y, m, d] = date.split("-").map(Number);
   const targetDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  
   const dayOfWeek = targetDate.getUTCDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
   const holidays = await getHolidaysByYear(y);
   const isHoliday = holidays.includes(date);
 
@@ -489,7 +502,7 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
 
   const startOfDay = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
   const endOfDay = new Date(Date.UTC(y, m - 1, d, 23, 59, 59));
-  
+
   const rentalsToday = await prisma.rental.findMany({
     where: {
       gameId: String(gameId),
@@ -503,10 +516,10 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
   const slots: string[] = [];
   const BUFFER_MS = 30 * 60 * 1000;
   const now = new Date();
-  
+
   for (let hour = 8; hour < 19; hour++) {
     for (const minute of [0, 30]) {
-      if (hour === 18 && minute === 30) continue; 
+      if (hour === 18 && minute === 30) continue;
       
       const slotStart = new Date(Date.UTC(y, m - 1, d, hour + 3, minute, 0));
       const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
@@ -514,11 +527,9 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
       if (slotStart < now) continue;
 
       let conflictingCopies = 0;
-
       for (const r of rentalsToday) {
         const rentalStart = r.startDate.getTime();
         const rentalEndWithBuffer = r.endDate.getTime() + BUFFER_MS;
-
         if (slotStart.getTime() < rentalEndWithBuffer && slotEnd.getTime() > rentalStart) {
           conflictingCopies++;
         }
