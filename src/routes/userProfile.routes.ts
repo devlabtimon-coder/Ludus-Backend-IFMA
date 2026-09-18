@@ -30,12 +30,14 @@ function extractPublicIdFromCloudinaryUrl(url: string | null | undefined) {
     const marker = "/upload/";
     const idx = url.indexOf(marker);
     if (idx === -1) return null;
+
     let pathPart = url.slice(idx + marker.length);
     const parts = pathPart.split("/");
     const versionIndex = parts.findIndex((part) => /^v\d+$/.test(part));
     if (versionIndex >= 0) {
       pathPart = parts.slice(versionIndex + 1).join("/");
     }
+
     pathPart = pathPart.replace(/\.[^.]+$/, "");
     return pathPart;
   } catch {
@@ -161,6 +163,7 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
           error: "Telefone inválido.",
         });
       }
+
       const phoneExists = await prisma.user.findFirst({
         where: {
           phone: cleanPhone,
@@ -169,12 +172,23 @@ userProfileRoutes.patch("/me", ensureAuthenticated, async (req, res) => {
           },
         },
       });
+
       if (phoneExists) {
         return res.status(400).json({
           error: "Telefone já está sendo usado.",
         });
       }
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { phone: true },
+      });
+
       updateData.phone = cleanPhone;
+
+      if (currentUser?.phone !== cleanPhone) {
+        updateData.phoneVerified = false;
+      }
     }
 
     const user = await prisma.user.update({
@@ -215,6 +229,7 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
     if (!newPassword) {
       return res.status(400).json({ error: "A nova senha é obrigatória." });
     }
+
     if (String(newPassword).length < 6) {
       return res.status(400).json({
         error: "A nova senha deve ter pelo menos 6 caracteres.",
@@ -233,6 +248,7 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
       if (!currentPassword) {
         return res.status(400).json({ error: "A senha atual é obrigatória." });
       }
+
       const passwordOk = await bcrypt.compare(currentPassword, user.senhaHash);
       if (!passwordOk) {
         return res.status(400).json({ error: "Senha atual incorreta." });
@@ -240,6 +256,7 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
+
     await prisma.user.update({
       where: { id: req.user.id },
       data: { senhaHash: newHash },
@@ -524,7 +541,7 @@ userProfileRoutes.patch(
       }
 
       await notifyAdmins({
-        title: "Documentos para Análise 📄",
+        title: "Documentos para Análise 📋",
         body: `O usuário ${updatedUser.name} enviou documentos e aguarda aprovação.`,
         data: { route: "/cadastro" },
         dedupeKey: `ADMIN_DOCS_${updatedUser.id}_${Date.now()}`,
@@ -534,6 +551,7 @@ userProfileRoutes.patch(
         message: "Documentos atualizados com sucesso!",
         user: updatedUser,
       });
+
     } catch (err: any) {
       console.error("Erro ao processar documentos:", err);
       if (err?.code === "LIMIT_FILE_SIZE") {
