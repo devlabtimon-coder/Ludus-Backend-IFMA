@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto"; 
+import { randomBytes } from "crypto";
 import { prisma } from "../lib/prisma";
 import { NotificationType } from "@prisma/client";
 import { notifyUser } from "./notify.service";
@@ -43,10 +43,13 @@ export async function addUserPoints(params: {
   const { userId, delta, reason } = params;
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, points: true, level: true },
     });
+
     if (!user) throw new Error("User not found");
 
     const prevPoints = user.points ?? 0;
@@ -81,15 +84,16 @@ export async function addUserPoints(params: {
       await notifyUser({
         userId,
         type: NotificationType.POINTS_EARNED,
-        title: "Pontos recebidos 🚀",
+        title: "Pontos recebidos!",
         body: `Você ganhou +${delta} pontos! Motivo: ${reason}`,
         channelId: "system",
         data: { route: "/ranking", delta, reason },
         dedupeKey: `POINTS_EARNED:${userId}:${Date.now()}`,
       });
+
       await sendPushToUser({
         userId,
-        title: "Pontos recebidos 🚀",
+        title: "Pontos recebidos!",
         body: `Você ganhou +${delta} pontos!`,
         channelId: "system",
         data: { route: "/ranking" },
@@ -99,15 +103,16 @@ export async function addUserPoints(params: {
       await notifyUser({
         userId,
         type: "SYSTEM_ANNOUNCEMENT" as NotificationType,
-        title: "Punição Aplicada ⚠️",
+        title: "Punição Aplicada!",
         body: `Você perdeu ${Math.abs(delta)} pontos. Motivo: ${reason}`,
         channelId: "system",
         data: { route: "/ranking", delta, reason },
         dedupeKey: `POINTS_LOST:${userId}:${Date.now()}`,
       });
+
       await sendPushToUser({
         userId,
-        title: "Atenção: Pontos perdidos ⚠️",
+        title: "Atenção: Pontos perdidos!",
         body: `Você perdeu ${Math.abs(delta)} pontos.`,
         channelId: "system",
         data: { route: "/ranking" },
@@ -116,6 +121,7 @@ export async function addUserPoints(params: {
 
     if (result.leveledUp) {
       const levelName = getLevelName(result.nextLevel);
+      
       await notifyUser({
         userId,
         type: NotificationType.LEVEL_UP,
@@ -130,6 +136,7 @@ export async function addUserPoints(params: {
         },
         dedupeKey: `LEVEL_UP:${userId}:${result.nextLevel}`,
       });
+
       await sendPushToUser({
         userId,
         title: "Você subiu de nível! 🎉",
@@ -144,11 +151,12 @@ export async function addUserPoints(params: {
             where: { role: "ADMIN" },
             select: { id: true }
           });
+
           for (const admin of admins) {
             await notifyUser({
               userId: admin.id,
               type: NotificationType.SYSTEM_ANNOUNCEMENT,
-              title: "Cupons Pendentes 🎫",
+              title: "Cupons Pendentes 🎟️",
               body: `O aluno ${result.updated.name} alcançou o Nível ${result.nextLevel}. Acesse o painel para gerar a recompensa.`,
               channelId: "system",
               data: { route: "temporadas" }
@@ -223,12 +231,10 @@ export async function applyConservationPenalty(userId: string) {
   });
 }
 
-
 export async function generateUniqueCouponCode(prefix: string): Promise<string> {
   let code = "";
   let isUnique = false;
   let attempts = 0;
-
 
   while (!isUnique && attempts < 5) {
     code = `${prefix}-${randomBytes(3).toString("hex").toUpperCase()}`;
@@ -265,14 +271,16 @@ export async function generateSeasonCouponsForUsers(userIds: string[], seasonId:
     },
     _sum: { points: true }
   });
+
   const pointsMap = new Map(pointsLogs.map(l => [l.userId, l._sum.points || 0]));
 
   const rewardLevels = [2, 3, 4, 5];
   const now = new Date();
   const isSeasonActive = now >= season.startDate && now <= season.endDate;
-  
+
   const rewards = (season.rewards as Record<string, any>) || {};
   let count = 0;
+  
   const generatedLevelsPerUser: Record<string, number[]> = {};
 
   for (const user of users) {
@@ -281,13 +289,11 @@ export async function generateSeasonCouponsForUsers(userIds: string[], seasonId:
     
     const reachedLevels: number[] = rewardLevels.filter((l: number) => l <= seasonLevel);
     
-    
     const existingCoupons: { type: string }[] = await prisma.coupon.findMany({
       where: { userId: user.id, seasonId: season.id },
       select: { type: true }
     });
 
-   
     const alreadyGeneratedLevels: number[] = existingCoupons
       .map((c: { type: string }) => {
         const match = c.type.match(/^REWARD_LEVEL_(\d+)$/);
@@ -295,7 +301,6 @@ export async function generateSeasonCouponsForUsers(userIds: string[], seasonId:
       })
       .filter((l: number | null): l is number => l !== null);
 
-  
     const pendingLevels: number[] = reachedLevels.filter((l: number) => !alreadyGeneratedLevels.includes(l));
     
     generatedLevelsPerUser[user.id] = pendingLevels;
@@ -303,6 +308,7 @@ export async function generateSeasonCouponsForUsers(userIds: string[], seasonId:
     for (const lvl of pendingLevels) {
       const levelKey = `nivel${lvl}`;
       const userReward = rewards[levelKey]?.cuponsGerados?.[0];
+      
       if (!userReward) continue;
 
       const prefix = `NVL${lvl}-S${season.name.replace(/\D/g, "")}`;
@@ -324,7 +330,7 @@ export async function generateSeasonCouponsForUsers(userIds: string[], seasonId:
       await notifyUser({
         userId: user.id,
         type: NotificationType.SYSTEM_ANNOUNCEMENT,
-        title: "Recompensa de Temporada! 🎉",
+        title: "Recompensa de Temporada!",
         body: `Você bateu a meta e ganhou o cupom do Nível ${lvl}: ${code}. Aproveite!`,
         channelId: "system",
       });
@@ -341,13 +347,13 @@ export async function generatePendingLevelCoupons(userId: string) {
   const activeSeason = await prisma.season.findFirst({
     where: { startDate: { lte: now }, endDate: { gte: now } }
   });
-  
+
   if (!activeSeason) {
     return { message: "Nenhuma temporada ativa para gerar recompensas." };
   }
-  
+
   const result = await generateSeasonCouponsForUsers([userId], activeSeason.id);
-  
+
   if (result.count === 0) {
     return { message: "Todos os cupons pendentes já foram gerados ou o usuário não atingiu níveis de recompensa." };
   }
