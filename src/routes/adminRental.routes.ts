@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { NotificationType, RentalStatus } from "@prisma/client";
+import { NotificationType, RentalStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureAdmin } from "../middlewares/ensureAdmin";
@@ -18,8 +18,9 @@ function getParam(param: string | string[] | undefined): string {
 
 adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const { status, q, overdue, page: pageQuery, limit: limitQuery } = req.query;
+
   const where: any = {};
-  
+
   if (typeof status === "string" && status !== "ALL") {
     if (!Object.values(RentalStatus).includes(status as RentalStatus)) {
       return res.status(400).json({ error: "status inválido" });
@@ -63,7 +64,7 @@ adminRentalRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) =>
                 phone: true,
                 avatar: true, 
                 picture: true
-                }
+                } 
            },
           game: { select: { id: true, title: true, cover: true, price: true } },
           copy: { select: { id: true, code: true, number: true, condition: true } },
@@ -130,38 +131,47 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
   }
 
   try {
-    const rental = await prisma.rental.findUnique({
-      where: { id },
-      include: {
-        game: { select: { id: true, title: true } },
-        user: { select: { name: true } },
-      },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM "Rental" WHERE id = ${id} FOR UPDATE`;
 
-    if (!rental) {
-      return res.status(404).json({ error: "Aluguel não encontrado" });
-    }
-
-    const FINALIZED: RentalStatus[] = [RentalStatus.RETURNED, RentalStatus.CANCELED];
-    if (FINALIZED.includes(rental.status) && status !== rental.status) {
-      return res.status(409).json({
-        error: "Aluguel já finalizado",
-        code: "RENTAL_FINALIZED",
+      const rental = await tx.rental.findUnique({
+        where: { id },
+        include: {
+          game: { select: { id: true, title: true } },
+          user: { select: { name: true } },
+        },
       });
-    }
 
-    if (status === RentalStatus.ACTIVE && rental.status === RentalStatus.PENDING) {
-      const now = new Date();
-      const fifteenMinutesMs = 15 * 60 * 1000; 
-      if (now.getTime() < rental.startDate.getTime() - fifteenMinutesMs) {
-        return res.status(400).json({
-          error: "Muito cedo para ativar. A retirada só pode ser confirmada no horário agendado.",
-          code: "TOO_EARLY_TO_ACTIVATE"
-        });
+      if (!rental) {
+        return { status: 404, body: { error: "Aluguel não encontrado" } } as const;
       }
-    }
 
-    const updated = await prisma.$transaction(async (tx) => {
+      if (rental.status === status) {
+        return { status: 409, body: { error: "Este aluguel já está com este status.", code: "SAME_STATUS" } } as const;
+      }
+
+      const FINALIZED: RentalStatus[] = [RentalStatus.RETURNED, RentalStatus.CANCELED];
+      if (FINALIZED.includes(rental.status)) {
+        return {
+          status: 409,
+          body: { error: "Aluguel já finalizado", code: "RENTAL_FINALIZED" }
+        } as const;
+      }
+
+      if (status === RentalStatus.ACTIVE && rental.status === RentalStatus.PENDING) {
+        const now = new Date();
+        const fifteenMinutesMs = 15 * 60 * 1000; 
+        if (now.getTime() < rental.startDate.getTime() - fifteenMinutesMs) {
+          return {
+            status: 400,
+            body: {
+              error: "Muito cedo para ativar. A retirada só pode ser confirmada no horário agendado.",
+              code: "TOO_EARLY_TO_ACTIVATE"
+            }
+          } as const;
+        }
+      }
+
       if (status === RentalStatus.RETURNED || status === RentalStatus.CANCELED) {
         if (rental.copyId) {
           await tx.gameCopy.update({
@@ -176,11 +186,20 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
         }
       }
 
-      return tx.rental.update({
+      const updated = await tx.rental.update({
         where: { id: rental.id },
         data: { status },
       });
+
+      return { status: 200, body: updated, previousStatus: rental.status, gameTitle: rental.game?.title || rental.gameTitleSnapshot } as const;
     });
+
+    if (result.status !== 200) {
+      return res.status(result.status).json(result.body);
+    }
+
+    const updated = result.body as any;
+    const { previousStatus, gameTitle } = result;
 
     await logAdminAction(req.user.id, `CHANGE_RENTAL_STATUS_${status}`, updated.id, {
       applyPenalty,
@@ -194,9 +213,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
       );
     }
 
-    const gameTitle = rental.game?.title || rental.gameTitleSnapshot;
-    
-    if (status === RentalStatus.ACTIVE) {
+    if (status === RentalStatus.ACTIVE && previousStatus === RentalStatus.PENDING) {
       try {
         await addUserPoints({
           userId: updated.userId,
@@ -207,7 +224,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
         await notifyUser({
           userId: updated.userId,
           type: NotificationType.RENTAL_CREATED,
-          title: "Aluguel Confirmado! 🎲",
+          title: "Aluguel Confirmado!",
           body: `Sua retirada de "${gameTitle}" foi confirmada. O prazo de devolução é ${updated.endDate.toLocaleDateString("pt-BR")}.`,
           channelId: "rentals",
           data: { route: "/rentals", rentalId: updated.id },
@@ -219,7 +236,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
       }
     }
 
-    if (status === RentalStatus.RETURNED) {
+    if (status === RentalStatus.RETURNED && previousStatus === RentalStatus.ACTIVE) {
       try {
         if (applyPenalty) {
           await applyConservationPenalty(updated.userId);
@@ -233,7 +250,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
             data: { route: "/ranking" }
           });
         } else {
-          const isOverdue = new Date() > rental.endDate;
+          const isOverdue = new Date() > updated.endDate;
           const pointsDelta = isOverdue ? 2 : 5; 
           const reasonPrefix = isOverdue ? "RENTAL_RETURNED_LATE" : "RENTAL_RETURNED_ON_TIME";
 
@@ -246,7 +263,7 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
           await notifyUser({
             userId: updated.userId,
             type: NotificationType.RENTAL_RETURN_CONFIRMED,
-            title: isOverdue ? "Jogo Devolvido com Atraso ⏰" : "Parabéns pela Devolução! 🏆",
+            title: isOverdue ? "Jogo Devolvido com Atraso ⚠️" : "Parabéns pela Devolução!",
             body: isOverdue
               ? `Você devolveu "${gameTitle}" com atraso e recebeu apenas ${pointsDelta} pontos. Cuidado para não perder o prazo!` 
               : `Obrigado por devolver "${gameTitle}" no prazo e com cuidado! Você ganhou ${pointsDelta} pontos.`,
