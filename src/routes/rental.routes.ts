@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
+import { Prisma } from "@prisma/client";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { ensureUserOnly } from "../middlewares/ensureUserOnly";
 import { notifyUser } from "../services/notify.service";
@@ -75,202 +76,216 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     return res.status(400).json({ error: "A data de devolução cai em um feriado. A biblioteca estará fechada." });
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT id FROM "Game" WHERE id = ${gameId} FOR UPDATE`;
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM "Game" WHERE id = ${gameId} FOR UPDATE`;
 
-    const user = await tx.user.findUnique({
-      where: { id: userId },
-      select: { 
-        id: true, 
-        name: true,
-        clientCategory: true,
-        registrationStatus: true,
-        isAcademicVerified: true 
-      },
-    });
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { 
+          id: true, 
+          name: true,
+          clientCategory: true,
+          registrationStatus: true,
+          isAcademicVerified: true 
+        },
+      });
 
-    if (!user) {
-      return { status: 404, body: { error: "Usuário não encontrado" } } as const;
-    }
-
-    const isIfmaMode = process.env.IFMA_MODE === "true" || process.env.EXPO_PUBLIC_IFMA_MODE === "true";
-    
-    if (isIfmaMode) {
-      if (!user.isAcademicVerified) {
-        return {
-          status: 403,
-          body: { error: "Vínculo acadêmico não verificado.", code: "ACCOUNT_PENDING" },
-        } as const;
+      if (!user) {
+        return { status: 404, body: { error: "Usuário não encontrado" } } as const;
       }
-    } else {
-      if (user.registrationStatus !== "APPROVED") {
-        return {
-          status: 403,
-          body: { error: "Sua conta ainda não foi aprovada para aluguéis.", code: "ACCOUNT_PENDING" },
-        } as const;
-      }
-    }
 
-    if (user.clientCategory === "STARTER") {
-      const isSameDay =
-        startDate.getFullYear() === endDate.getFullYear() &&
-        startDate.getMonth() === endDate.getMonth() &&
-        startDate.getDate() === endDate.getDate();
-
-      if (!isSameDay) {
-        return {
-          status: 400,
-          body: { error: "Usuários STARTER devem agendar a devolução para o mesmo dia da retirada." }
-        } as const;
-      }
-    }
-
-    const activeCount = await tx.rental.count({
-      where: {
-        userId,
-        status: { in: ["PENDING", "ACTIVE"] },
-      },
-    });
-
-    if (activeCount >= 2) {
-      return {
-        status: 409,
-        body: { error: "Você possui 2 aluguéis em aberto.", code: "RENTAL_LIMIT_REACHED" },
-      } as const;
-    }
-
-    const game = await tx.game.findUnique({
-      where: { id: String(gameId) },
-      select: {
-        id: true, title: true, cover: true, available: true,
-        allowOriginalRental: true, isActive: true, isVisible: true, tier: true,
-      },
-    });
-
-    if (!game || !game.isActive || !game.isVisible) {
-      return { status: 404, body: { error: "Jogo não encontrado" } } as const;
-    }
-
-    if (game.tier) {
-      const allowed = canClientRentTier(user.clientCategory, game.tier);
-      if (!allowed) {
-        return {
-          status: 403,
-          body: { error: "Sua categoria não permite alugar este jogo.", code: "TIER_ACCESS_DENIED" },
-        } as const;
-      }
-    }
-
-    const availableCopies = await tx.gameCopy.findMany({
-      where: { gameId: game.id, available: true }
-    });
-
-    const allActiveRentals = await tx.rental.findMany({
-      where: {
-        gameId: game.id,
-        status: { in: ["PENDING", "ACTIVE"] },
-      },
-      select: { copyId: true, startDate: true, endDate: true }
-    });
-
-    const BUFFER_MS = 30 * 60 * 1000; 
-
-    const requestedStartMs = startDate.getTime();
-    const requestedEndMs = endDate.getTime();
-
-    const overlappingRentals = allActiveRentals.filter((rental) => {
-      const rentalStartMs = rental.startDate.getTime();
-      const rentalEndWithBufferMs = rental.endDate.getTime() + BUFFER_MS;
-      return requestedStartMs < rentalEndWithBufferMs && requestedEndMs > rentalStartMs;
-    });
-
-    const takenCopyIds = overlappingRentals.map(r => r.copyId);
-    const isOriginalTaken = takenCopyIds.includes(null);
-
-    let assignedCopyId: string | null | undefined = undefined;
-
-    if (copyId) {
-      const targetCopyId = String(copyId);
+      const isIfmaMode = process.env.IFMA_MODE === "true" || process.env.EXPO_PUBLIC_IFMA_MODE === "true";
       
-      const isValidCopy = availableCopies.some(c => c.id === targetCopyId);
-      if (!isValidCopy) {
-        return { 
-          status: 400, 
-          body: { error: "Exemplar inválido, indisponível ou pertencente a outro jogo.", code: "INVALID_COPY" } 
-        } as const;
-      }
-
-      if (takenCopyIds.includes(targetCopyId)) {
-        return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
-      }
-      assignedCopyId = targetCopyId;
-    } else {
-      if (game.allowOriginalRental && game.available && !isOriginalTaken) {
-        assignedCopyId = null; 
+      if (isIfmaMode) {
+        if (!user.isAcademicVerified) {
+          return {
+            status: 403,
+            body: { error: "Vínculo acadêmico não verificado.", code: "ACCOUNT_PENDING" },
+          } as const;
+        }
       } else {
-        const freeCopy = availableCopies.find(c => !takenCopyIds.includes(c.id));
-        if (freeCopy) {
-          assignedCopyId = freeCopy.id;
+        if (user.registrationStatus !== "APPROVED") {
+          return {
+            status: 403,
+            body: { error: "Sua conta ainda não foi aprovada para aluguéis.", code: "ACCOUNT_PENDING" },
+          } as const;
         }
       }
-    }
 
-    if (assignedCopyId === undefined) {
-      return { status: 409, body: { error: "Todos os exemplares deste jogo já estão reservados neste horário.", code: "TIME_SLOT_TAKEN" } } as const;
-    }
+      if (user.clientCategory === "STARTER") {
+        const isSameDay =
+          startDate.getFullYear() === endDate.getFullYear() &&
+          startDate.getMonth() === endDate.getMonth() &&
+          startDate.getDate() === endDate.getDate();
 
-    let copyCodeSnapshot = null;
-    let copyNumberSnapshot = null;
-
-    if (assignedCopyId !== null) {
-      const selectedCopy = availableCopies.find(c => c.id === assignedCopyId);
-      if (selectedCopy) {
-        copyCodeSnapshot = selectedCopy.code;
-        copyNumberSnapshot = selectedCopy.number;
+        if (!isSameDay) {
+          return {
+            status: 400,
+            body: { error: "Usuários STARTER devem agendar a devolução para o mesmo dia da retirada." }
+          } as const;
+        }
       }
+
+      const activeCount = await tx.rental.count({
+        where: {
+          userId,
+          status: { in: ["PENDING", "ACTIVE"] },
+        },
+      });
+
+      if (activeCount >= 2) {
+        return {
+          status: 409,
+          body: { error: "Você possui 2 aluguéis em aberto.", code: "RENTAL_LIMIT_REACHED" },
+        } as const;
+      }
+
+      const game = await tx.game.findUnique({
+        where: { id: String(gameId) },
+        select: {
+          id: true, title: true, cover: true, available: true,
+          allowOriginalRental: true, isActive: true, isVisible: true, tier: true,
+        },
+      });
+
+      if (!game || !game.isActive || !game.isVisible) {
+        return { status: 404, body: { error: "Jogo não encontrado" } } as const;
+      }
+
+      if (game.tier) {
+        const allowed = canClientRentTier(user.clientCategory, game.tier);
+        if (!allowed) {
+          return {
+            status: 403,
+            body: { error: "Sua categoria não permite alugar este jogo.", code: "TIER_ACCESS_DENIED" },
+          } as const;
+        }
+      }
+
+      const availableCopies = await tx.gameCopy.findMany({
+        where: { gameId: game.id, available: true }
+      });
+
+      const allActiveRentals = await tx.rental.findMany({
+        where: {
+          gameId: game.id,
+          status: { in: ["PENDING", "ACTIVE"] },
+        },
+        select: { copyId: true, startDate: true, endDate: true }
+      });
+
+      const BUFFER_MS = 30 * 60 * 1000; 
+
+      const requestedStartMs = startDate.getTime();
+      const requestedEndMs = endDate.getTime();
+
+      const overlappingRentals = allActiveRentals.filter((rental) => {
+        const rentalStartMs = rental.startDate.getTime();
+        const rentalEndWithBufferMs = rental.endDate.getTime() + BUFFER_MS;
+        return requestedStartMs < rentalEndWithBufferMs && requestedEndMs > rentalStartMs;
+      });
+
+      const takenCopyIds = overlappingRentals.map(r => r.copyId);
+      const isOriginalTaken = takenCopyIds.includes(null);
+
+      let assignedCopyId: string | null | undefined = undefined;
+
+      if (copyId) {
+        const targetCopyId = String(copyId);
+        
+        const isValidCopy = availableCopies.some(c => c.id === targetCopyId);
+        if (!isValidCopy) {
+          return { 
+            status: 400, 
+            body: { error: "Exemplar inválido, indisponível ou pertencente a outro jogo.", code: "INVALID_COPY" } 
+          } as const;
+        }
+
+        if (takenCopyIds.includes(targetCopyId)) {
+          return { status: 409, body: { error: "Este exemplar já está reservado no horário selecionado.", code: "TIME_SLOT_TAKEN" } } as const;
+        }
+        assignedCopyId = targetCopyId;
+      } else {
+        if (game.allowOriginalRental && game.available && !isOriginalTaken) {
+          assignedCopyId = null; 
+        } else {
+          const freeCopy = availableCopies.find(c => !takenCopyIds.includes(c.id));
+          if (freeCopy) {
+            assignedCopyId = freeCopy.id;
+          }
+        }
+      }
+
+      if (assignedCopyId === undefined) {
+        return { status: 409, body: { error: "Todos os exemplares deste jogo já estão reservados neste horário.", code: "TIME_SLOT_TAKEN" } } as const;
+      }
+
+      let copyCodeSnapshot = null;
+      let copyNumberSnapshot = null;
+
+      if (assignedCopyId !== null) {
+        const selectedCopy = availableCopies.find(c => c.id === assignedCopyId);
+        if (selectedCopy) {
+          copyCodeSnapshot = selectedCopy.code;
+          copyNumberSnapshot = selectedCopy.number;
+        }
+      }
+
+      const rental = await tx.rental.create({
+        data: {
+          userId,
+          gameId: game.id,
+          copyId: assignedCopyId, 
+          startDate,
+          endDate,
+          status: "PENDING",
+          gameTitleSnapshot: game.title,
+          gameCoverSnapshot: game.cover ?? null,
+          copyCodeSnapshot,
+          copyNumberSnapshot
+        },
+      });
+
+      return { status: 201, body: rental, userName: user.name } as const;
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    if (result.status === 201 && "id" in result.body) {
+      const game = await prisma.game.findUnique({
+        where: { id: String(gameId) },
+        select: { title: true },
+      });
+
+      await notifyUser({
+        userId,
+        type: "RENTAL_CREATED",
+        title: "Reserva Confirmada",
+        body: `Sua reserva de "${game?.title}" foi agendada!`,
+        channelId: "rentals",
+      });
+
+      await notifyAdmins({
+        title: "Nova Solicitação de Aluguel",
+        body: `O usuário ${result.userName} solicitou a retirada de "${game?.title}".`,
+        data: { route: "/emprestimos" },
+        dedupeKey: `ADMIN_NEW_RENTAL_${result.body.id}`
+      });
     }
 
-    const rental = await tx.rental.create({
-      data: {
-        userId,
-        gameId: game.id,
-        copyId: assignedCopyId, 
-        startDate,
-        endDate,
-        status: "PENDING",
-        gameTitleSnapshot: game.title,
-        gameCoverSnapshot: game.cover ?? null,
-        copyCodeSnapshot,
-        copyNumberSnapshot
-      },
-    });
+    return res.status(result.status).json(result.body);
 
-    return { status: 201, body: rental, userName: user.name } as const;
-  });
-
-  if (result.status === 201 && "id" in result.body) {
-    const game = await prisma.game.findUnique({
-      where: { id: String(gameId) },
-      select: { title: true },
-    });
-
-    await notifyUser({
-      userId,
-      type: "RENTAL_CREATED",
-      title: "Reserva Confirmada",
-      body: `Sua reserva de "${game?.title}" foi agendada!`,
-      channelId: "rentals",
-    });
-
-    await notifyAdmins({
-      title: "Nova Solicitação de Aluguel",
-      body: `O usuário ${result.userName} solicitou a retirada de "${game?.title}".`,
-      data: { route: "/emprestimos" },
-      dedupeKey: `ADMIN_NEW_RENTAL_${result.body.id}`
-    });
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      return res.status(409).json({ 
+        error: "Este exemplar acabou de ser reservado por outra pessoa neste mesmo milissegundo. Atualize a página e tente outro horário.", 
+        code: "CONCURRENCY_CONFLICT" 
+      });
+    }
+    console.error("Erro na criação do aluguel:", err);
+    return res.status(500).json({ error: "Erro interno ao processar a reserva." });
   }
-
-  return res.status(result.status).json(result.body);
 });
 
 rentalRoutes.get("/me", ensureAuthenticated, async (req, res) => {
