@@ -54,9 +54,8 @@ function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFrontImage: user.documentFrontImage,
-    documentBackImage: user.documentBackImage,
-    addressProof: user.addressProof,
+    documentFile: user.documentFile || null,
+    addressProof: user.addressProof || null,
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };

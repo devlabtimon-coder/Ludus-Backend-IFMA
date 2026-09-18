@@ -43,9 +43,8 @@ function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFrontImage: user.documentFrontImage,
-    documentBackImage: user.documentBackImage,
-    addressProof: user.addressProof,
+    documentFile: user.documentFile || null,
+    addressProof: user.addressProof || null,
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };
@@ -64,6 +63,7 @@ function signUserToken(userId: string, role: string) {
 
 router.post("/login", loginLimiter, async (req, res) => {
   const { email, senha } = req.body;
+
   try {
     const data = await login(email, senha);
     return res.json(data);
@@ -74,15 +74,18 @@ router.post("/login", loginLimiter, async (req, res) => {
 
 router.post("/google", loginLimiter, async (req, res) => {
   const token = req.body.token || req.body.idToken;
+
   if (!token) {
     return res.status(400).json({ error: "Token é obrigatório" });
   }
+
   try {
     const result = await loginWithGoogle(token);
     return res.json(result);
   } catch (err: any) {
     const prismaCode = err?.code;
     const msg = err?.message || "Falha ao autenticar com Google";
+
     const isAuthError =
       msg.toLowerCase().includes("token") ||
       msg.toLowerCase().includes("jwt") ||
@@ -92,6 +95,7 @@ router.post("/google", loginLimiter, async (req, res) => {
     if (isAuthError) {
       return res.status(401).json({ error: msg });
     }
+
     return res.status(500).json({
       error: msg,
       prismaCode,
@@ -110,24 +114,30 @@ router.post("/register", async (req, res) => {
     const cleanAddress = (address || "").trim();
     const cleanMatricula = (matricula || "").trim();
 
-    if (!cleanMatricula) {
-       return res.status(400).json({ error: "Matrícula é obrigatória." });
+    if (!cleanMatricula) { 
+      return res.status(400).json({ error: "Matrícula é obrigatória." });
     }
-    if (!cleanAddress) {
-       return res.status(400).json({ error: "Endereço é obrigatório." });
+
+    if (!cleanAddress) { 
+      return res.status(400).json({ error: "Endereço é obrigatório." });
     }
+
     if(!cleanCpf) {
       return res.status(400).json({ error: "Cpf é obrigatório." });
     }
+
     if (!cleanName) {
       return res.status(400).json({ error: "Nome é obrigatório." });
     }
+
     if (!cleanEmail) {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
+
     if ((!senha || senha.length < 6) && !googleToken) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
+
     if (!acceptedTerms || !acceptedPrivacy) {
       return res.status(400).json({
         error: "Você precisa aceitar os Termos de Uso e a Política de Privacidade.",
@@ -142,6 +152,7 @@ router.post("/register", async (req, res) => {
         if (!googleEmail || googleEmail !== cleanEmail) {
           return res.status(401).json({ error: "O e-mail fornecido não pertence a este token do Google." });
         }
+
         if (googlePayload.email_verified === false) {
           return res.status(401).json({ error: "A conta Google não possui e-mail verificado." });
         }
@@ -153,6 +164,7 @@ router.post("/register", async (req, res) => {
         const phoneExists = await prisma.user.findFirst({
           where: { phone: cleanPhone, email: { not: cleanEmail } },
         });
+
         if (phoneExists) {
           return res.status(400).json({ error: "Telefone já cadastrado." });
         }
@@ -216,6 +228,7 @@ router.post("/register", async (req, res) => {
     const emailExists = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
+
     if (emailExists) {
       return res.status(400).json({ error: "Este e-mail já está em uso." });
     }
@@ -224,6 +237,7 @@ router.post("/register", async (req, res) => {
       const phoneExists = await prisma.user.findUnique({
         where: { phone: cleanPhone },
       });
+
       if (phoneExists) {
         return res.status(400).json({ error: "Telefone já cadastrado." });
       }
@@ -242,6 +256,7 @@ router.post("/register", async (req, res) => {
         if (pendingExists.lastEmailSentAt) {
           const elapsed = Date.now() - pendingExists.lastEmailSentAt.getTime();
           const waitMs = 30_000 - elapsed;
+
           if (waitMs > 0) {
             const retryAfterSec = Math.ceil(waitMs / 1000);
             return res.status(429).json({

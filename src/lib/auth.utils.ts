@@ -19,9 +19,8 @@ export function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFrontImage: user.documentFrontImage,
-    documentBackImage: user.documentBackImage,
-    addressProof: user.addressProof,
+    documentFile: user.documentFile || null,
+    addressProof: user.addressProof || null,
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };
@@ -30,7 +29,7 @@ export function buildUserResponse(user: any) {
 export function signUserToken(userId: string, role: string) {
   return jwt.sign(
     { role },
-    process.env.JWT_SECRET as string, 
+    process.env.JWT_SECRET as string,
     {
       subject: userId,
       expiresIn: "7d",
