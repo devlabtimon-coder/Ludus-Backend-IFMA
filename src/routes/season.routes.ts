@@ -18,16 +18,17 @@ export function calculateSeasonLevel(points: number): number {
   return getLevelByPoints(Math.max(0, points)).level;
 }
 
-function getEndOfDay(dateInput: string | Date): Date {
-  const dateStr = typeof dateInput === "string" ? dateInput.split("T")[0] : dateInput.toISOString().split("T")[0];
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, 26, 59, 59, 999));
-}
-
 function getStartOfDay(dateInput: string | Date): Date {
   const dateStr = typeof dateInput === "string" ? dateInput.split("T")[0] : dateInput.toISOString().split("T")[0];
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 3, 0, 0, 0));
+}
+
+function getEndOfDay(dateInput: string | Date): Date {
+  const dateStr = typeof dateInput === "string" ? dateInput.split("T")[0] : dateInput.toISOString().split("T")[0];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const nextDay = new Date(Date.UTC(y, m - 1, d + 1, 3, 0, 0, 0));
+  return new Date(nextDay.getTime() - 1);
 }
 
 const DEFAULT_REWARDS = {
@@ -69,12 +70,11 @@ async function generateSeasonSnapshot(seasonId: string) {
   });
   const rentalMap = new Map(rentals.map(r => [r.userId, r._count.id]));
 
-  const now = new Date();
-  const isActive = now >= searchStart && now <= searchEnd;
-
   const userStats = users.map(u => {
-    const rawPts = isActive ? Math.max(logMap.get(u.id) || 0, u.points) : (logMap.get(u.id) || 0);
-    const finalPoints = Math.max(0, rawPts);
+    const logPoints = logMap.get(u.id) || 0;
+    // O pulo do gato: confia sempre no maior número para não perder pontos manuais
+    const finalPoints = Math.max(0, logPoints, u.points);
+    
     return {
       userId: u.id,
       finalPoints,
@@ -98,6 +98,15 @@ async function generateSeasonSnapshot(seasonId: string) {
       await tx.seasonStanding.createMany({ data: standingsData });
     }
   });
+
+  try {
+    const eligibleUserIds = userStats.filter(u => u.finalLevel >= 2).map(u => u.userId);
+    if (eligibleUserIds.length > 0) {
+      await generateSeasonCouponsForUsers(eligibleUserIds, season.id);
+    }
+  } catch (e) {
+    console.error("Erro ao gerar cupons no fechamento da temporada:", e);
+  }
 }
 
 seasonRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
