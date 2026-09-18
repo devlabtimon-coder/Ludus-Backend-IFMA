@@ -663,6 +663,7 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
       isVisible,
       isActive,
       inactivationReason,
+      mechanics,
     } = req.body;
 
     const data: any = {};
@@ -690,6 +691,10 @@ gameRoutes.patch("/:id", ensureAuthenticated, ensureAdmin, async (req, res) => {
         return res.status(400).json({ error: "Preço inválido" });
       }
       data.price = p;
+    }
+
+    if (Array.isArray(mechanics)) {
+      data.mechanics = mechanics.map(String);
     }
 
     const updated = await prisma.game.update({
