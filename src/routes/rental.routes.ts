@@ -386,10 +386,10 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
 
   const y = parseInt(String(year), 10);
   const m = parseInt(String(month), 10);
-  const daysInMonth = new Date(y, m, 0).getDate();
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
 
-  const startOfMonth = new Date(`${y}-${String(m).padStart(2, "0")}-01T00:00:00-03:00`);
-  const endOfMonth = new Date(`${y}-${String(m).padStart(2, "0")}-${daysInMonth}T23:59:59-03:00`);
+  const startOfMonth = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+  const endOfMonth = new Date(Date.UTC(y, m - 1, daysInMonth, 23, 59, 59));
 
   const rentalsThisMonth = await prisma.rental.findMany({
     where: {
@@ -407,10 +407,11 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
   const now = new Date();
 
   for (let day = 1; day <= daysInMonth; day++) {
+    const targetDate = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
     const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const targetDate = new Date(`${dateStr}T00:00:00-03:00`);
 
-    const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
+    const dayOfWeek = targetDate.getUTCDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
     const isHoliday = holidays.includes(dateStr);
 
     if (isWeekend || isHoliday) continue;
@@ -418,10 +419,11 @@ rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (
     let slotsLivres = 0;
 
     for (let hour = 8; hour < 19; hour++) {
-      for (let minute of [0, 30]) {
+      for (const minute of [0, 30]) {
         if (hour === 18 && minute === 30) continue;
 
-        const slotStart = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
+        // Monta o horário UTC correspondente ao horário comercial de Brasília (+3h)
+        const slotStart = new Date(Date.UTC(y, m - 1, day, hour + 3, minute, 0));
         const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
 
         if (slotStart < now) continue;
@@ -455,7 +457,7 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
   const { gameId } = req.params;
   const { date } = req.query; 
 
-  if (!date) {
+  if (!date || typeof date !== "string") {
     return res.status(400).json({ error: "A data (YYYY-MM-DD) é obrigatória." });
   }
 
@@ -473,18 +475,20 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
   });
   const totalCopies = copiesCount + (game.allowOriginalRental && game.available ? 1 : 0);
 
-  const targetDate = new Date(`${date}T00:00:00-03:00`);
+  const [y, m, d] = date.split("-").map(Number);
+  const targetDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
   
-  const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
-  const holidays = await getHolidaysByYear(targetDate.getFullYear());
-  const isHoliday = holidays.includes(String(date));
+  const dayOfWeek = targetDate.getUTCDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const holidays = await getHolidaysByYear(y);
+  const isHoliday = holidays.includes(date);
 
   if (isWeekend || isHoliday || totalCopies === 0) {
     return res.json({ availableSlots: [] }); 
   }
 
-  const startOfDay = new Date(`${date}T00:00:00-03:00`);
-  const endOfDay = new Date(`${date}T23:59:59-03:00`);
+  const startOfDay = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(y, m - 1, d, 23, 59, 59));
   
   const rentalsToday = await prisma.rental.findMany({
     where: {
@@ -496,17 +500,18 @@ rentalRoutes.get("/game/:gameId/availability", ensureAuthenticated, async (req, 
     select: { startDate: true, endDate: true },
   });
 
-  const slots = [];
+  const slots: string[] = [];
   const BUFFER_MS = 30 * 60 * 1000;
+  const now = new Date();
   
   for (let hour = 8; hour < 19; hour++) {
-    for (let minute of [0, 30]) {
+    for (const minute of [0, 30]) {
       if (hour === 18 && minute === 30) continue; 
       
-      const slotStart = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00-03:00`);
+      const slotStart = new Date(Date.UTC(y, m - 1, d, hour + 3, minute, 0));
       const slotEnd = new Date(slotStart.getTime() + (30 * 60 * 1000));
       
-      if (slotStart < new Date()) continue;
+      if (slotStart < now) continue;
 
       let conflictingCopies = 0;
 

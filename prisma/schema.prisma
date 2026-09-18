@@ -99,14 +99,12 @@ model User {
   cpf     String? @unique
   address String?
 
- 
   documentFile       String?
   addressProof       String?
   selfieWithId       String?
   enrollmentProof    String?
   registrationStatus RegistrationStatus @default(NOT_SUBMITTED)
   rejectReason       String?
-
 
   clientCategory    ClientCategory @default(STARTER)
   totalRentalsCount Int            @default(0)
@@ -123,7 +121,8 @@ model User {
   notifications           Notification[]
   gameAvailabilityWatches GameAvailabilityWatch[]
   coupons                 Coupon[]
-  adminLogs AdminLog[]
+  adminLogs               AdminLog[]
+  seasonStandings         SeasonStanding[]
 }
 
 model AdminLog {
@@ -145,7 +144,7 @@ model Game {
   id                  String  @id @default(uuid())
   ludopediaId         Int?
   title               String
-  description         String?
+  description         String? @db.Text
   price               Float
   available           Boolean @default(true)
   cover               String?
@@ -392,7 +391,24 @@ model Season {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  coupons Coupon[]
+  coupons   Coupon[]
+  standings SeasonStanding[]
+}
+
+model SeasonStanding {
+  id           String   @id @default(uuid())
+  seasonId     String
+  userId       String
+  finalPoints  Int
+  finalLevel   Int
+  rank         Int
+  rentalsCount Int
+  createdAt    DateTime @default(now())
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId])
 }
 
 model Coupon {
