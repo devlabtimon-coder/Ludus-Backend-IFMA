@@ -328,64 +328,86 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
   const { id } = req.params;
   const userId = req.user.id;
 
-  const rental = await prisma.rental.findUnique({
-    where: { id: String(id) },
-    include: {
-      game: { select: { id: true, title: true } },
-      copy: { select: { id: true } },
-    },
-  });
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      // Cria a trava a nível de linha para garantir a atomicidade
+      await tx.$executeRaw`SELECT id FROM "Rental" WHERE id = ${id} FOR UPDATE`;
 
-  if (!rental || rental.userId !== userId) {
-    return res.status(404).json({ error: "Aluguel não encontrado." });
-  }
+      const rental = await tx.rental.findUnique({
+        where: { id: String(id) },
+        include: {
+          game: { select: { id: true, title: true } },
+          copy: { select: { id: true } },
+        },
+      });
 
-  if (rental.status !== "PENDING") {
-    return res.status(409).json({
-      error: "Só é possível cancelar um aluguel que ainda está pendente.",
-      code: "ONLY_PENDING_CAN_CANCEL",
+      if (!rental || rental.userId !== userId) {
+        return { status: 404, body: { error: "Aluguel não encontrado." } } as const;
+      }
+
+      // Se a transação concorrente B passar da trava (após a transação A gravar), 
+      // a verificação abaixo bloqueia a B pois o status não é mais PENDING.
+      if (rental.status !== "PENDING") {
+        return {
+          status: 409,
+          body: {
+            error: "Só é possível cancelar um aluguel que ainda está pendente.",
+            code: "ONLY_PENDING_CAN_CANCEL",
+          },
+        } as const;
+      }
+
+      const cancelledRental = await tx.rental.update({
+        where: { id: rental.id },
+        data: { status: "CANCELED" },
+        include: {
+          game: { select: { id: true, title: true, cover: true } },
+          copy: { select: { id: true, code: true, number: true } },
+        },
+      });
+
+      return { status: 200, body: cancelledRental } as const;
     });
+
+    if (updated.status !== 200) {
+      return res.status(updated.status).json(updated.body);
+    }
+
+    const rentalData = updated.body;
+
+    // Dispara punições e notificações SOMENTE se a transação atômica teve sucesso
+    applyCancellationPenalty(userId).catch(() => {});
+
+    notifyUser({
+      userId,
+      type: "SYSTEM_ANNOUNCEMENT",
+      title: "Aluguel cancelado",
+      body: `Seu aluguel de "${rentalData.game?.title || rentalData.gameTitleSnapshot}" foi cancelado com sucesso.`,
+      channelId: "rentals",
+      data: { route: "/rentals", rentalId: rentalData.id },
+    }).catch(() => {});
+
+    if (rentalData.gameId) {
+      notifyGameBackAvailable(rentalData.gameId).catch(() => {});
+    }
+
+    const finalMapped = {
+      ...rentalData,
+      game: rentalData.game
+        ? rentalData.game
+        : { id: null, title: rentalData.gameTitleSnapshot, cover: rentalData.gameCoverSnapshot },
+      copy: rentalData.copy
+        ? rentalData.copy
+        : rentalData.copyCodeSnapshot || rentalData.copyNumberSnapshot
+        ? { id: null, code: rentalData.copyCodeSnapshot, number: rentalData.copyNumberSnapshot }
+        : null,
+    };
+
+    return res.json(finalMapped);
+  } catch (err) {
+    console.error("Erro ao cancelar aluguel:", err);
+    return res.status(500).json({ error: "Erro interno ao processar cancelamento." });
   }
-
-  const updated = await prisma.$transaction(async (tx) => {
-    return await tx.rental.update({
-      where: { id: rental.id },
-      data: { status: "CANCELED" },
-      include: {
-        game: { select: { id: true, title: true, cover: true } },
-        copy: { select: { id: true, code: true, number: true } },
-      },
-    });
-  });
-
-  applyCancellationPenalty(userId).catch(() => {});
-
-  notifyUser({
-    userId,
-    type: "SYSTEM_ANNOUNCEMENT",
-    title: "Aluguel cancelado",
-    body: `Seu aluguel de "${rental.game?.title || rental.gameTitleSnapshot}" foi cancelado com sucesso.`,
-    channelId: "rentals",
-    data: { route: "/rentals", rentalId: rental.id },
-  }).catch(() => {});
-
-  if (rental.gameId) {
-    notifyGameBackAvailable(rental.gameId).catch(() => {});
-  }
-
-  const finalMapped = {
-    ...updated,
-    game: updated.game
-      ? updated.game
-      : { id: null, title: updated.gameTitleSnapshot, cover: updated.gameCoverSnapshot },
-    copy: updated.copy
-      ? updated.copy
-      : updated.copyCodeSnapshot || updated.copyNumberSnapshot
-      ? { id: null, code: updated.copyCodeSnapshot, number: updated.copyNumberSnapshot }
-      : null,
-  };
-
-  return res.json(finalMapped);
 });
 
 rentalRoutes.get("/game/:gameId/unavailable-dates", ensureAuthenticated, async (req, res) => {
