@@ -5,7 +5,6 @@ import { randomInt } from "crypto";
 
 import { prisma } from "../lib/prisma";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
-import { verifySuapCredentials } from "../services/suap.service";
 import { sendVerificationEmail } from "../services/email.service";
 import { verifyGoogleToken } from "../services/auth.service"; 
 
@@ -297,77 +296,6 @@ router.post("/register", async (req, res) => {
       error: err.message || "Erro interno ao iniciar cadastro. Verifique os dados fornecidos." 
     });
   }
-});
-
-router.post("/verify-suap", ensureAuthenticated, async (req, res) => {
-  const { suapUsername, suapPassword } = req.body;
-
-  if (!suapUsername || !suapPassword) {
-    return res.status(400).json({
-      error: "Usuário e senha do SUAP são obrigatórios.",
-    });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: { id: true, isAcademicVerified: true, matricula: true },
-  });
-
-  if (!user) {
-    return res.status(404).json({ error: "Usuário não encontrado." });
-  }
-
-  if (user.isAcademicVerified) {
-    return res.status(200).json({
-      message: "Vínculo acadêmico já verificado.",
-      isAcademicVerified: true,
-    });
-  }
-
-  const result = await verifySuapCredentials(suapUsername, suapPassword);
-
-  if (!result.ok) {
-    if (result.reason === "INVALID_CREDENTIALS") {
-      return res.status(401).json({
-        error: "Usuário ou senha do SUAP incorretos. Tente novamente.",
-        code: "SUAP_INVALID_CREDENTIALS",
-      });
-    }
-    if (result.reason === "TIMEOUT") {
-      return res.status(504).json({
-        error: "O SUAP não respondeu a tempo. Tente novamente em instantes.",
-        code: "SUAP_TIMEOUT",
-      });
-    }
-    return res.status(503).json({
-      error: "Não foi possível conectar ao SUAP. Tente novamente mais tarde.",
-      code: "SUAP_UNAVAILABLE",
-    });
-  }
-
-  const updatedUser = await prisma.user.update({
-    where: { id: req.user.id },
-    data: {
-      isAcademicVerified: true,
-      academicVerifiedAt: new Date(),
-      matricula: user.matricula ?? result.matricula,
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      isAcademicVerified: true,
-      academicVerifiedAt: true,
-      matricula: true,
-    },
-  });
-
-  return res.json({
-    message: "Vínculo acadêmico verificado com sucesso!",
-    isAcademicVerified: true,
-    academicVerifiedAt: updatedUser.academicVerifiedAt,
-    matricula: updatedUser.matricula,
-  });
 });
 
 router.get("/status", ensureAuthenticated, async (req, res) => {

@@ -1,20 +1,18 @@
 import cron from "node-cron";
 import { NotificationType } from "@prisma/client";
-import { randomInt } from "crypto"; 
+import { randomInt } from "crypto";
+
 import { prisma } from "../lib/prisma";
 import { notifyUser } from "../services/notify.service";
 import { sendRegistrationReminderEmail } from "../services/email.service";
 
 function gen6() {
- 
   return randomInt(100000, 1000000).toString();
 }
 
 export function startRegistrationReminderJob() {
-
   cron.schedule("0 10 * * *", async () => {
     const now = new Date();
-
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     const incompleteUsers = await prisma.user.findMany({
@@ -22,8 +20,7 @@ export function startRegistrationReminderJob() {
         OR: [
           { phoneVerified: false },
           { isAcademicVerified: false } 
-        ],
-       
+        ],            
         createdAt: {
           gte: sevenDaysAgo,
         }
@@ -41,8 +38,8 @@ export function startRegistrationReminderJob() {
         route = "/profile/account"; 
       } else if (user.isAcademicVerified === false) {
         title = "Verificação Acadêmica 🎓";
-        body = "Falta pouco! Vincule sua conta do SUAP para comprovar seu vínculo.";
-        route = "/suap-verify";
+        body = "Falta pouco! Envie seu comprovante de matrícula para comprovar seu vínculo.";
+        route = "/profile/documents";
       }
 
       const dateString = now.toISOString().split("T")[0];

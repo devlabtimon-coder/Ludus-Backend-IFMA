@@ -436,7 +436,7 @@ userProfileRoutes.patch(
         if (!enrollmentFile && !currentUser?.enrollmentProof) {
           return res
             .status(400)
-            .json({ error: "O comprovante do SUAP é obrigatório." });
+            .json({ error: "O comprovante de matrícula é obrigatório." });
         }
       } else {
         if (
