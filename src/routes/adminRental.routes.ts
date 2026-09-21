@@ -172,16 +172,15 @@ adminRentalRoutes.patch("/:id/status", ensureAuthenticated, ensureAdmin, async (
         }
       }
 
-      if (status === RentalStatus.RETURNED || status === RentalStatus.CANCELED) {
+      // Automação de Manutenção: Se foi devolvido COM multa de conservação, bloqueia a cópia fisicamente
+      if (status === RentalStatus.RETURNED && applyPenalty) {
         if (rental.copyId) {
           await tx.gameCopy.update({
             where: { id: rental.copyId },
-            data: { available: true },
-          });
-        } else if (rental.gameId) {
-          await tx.game.update({
-            where: { id: rental.gameId },
-            data: { available: true },
+            data: { 
+              available: false, 
+              observations: penaltyReason ? `Bloqueio automático (Avaria): ${penaltyReason}` : "Bloqueio automático: Devolvido com avaria de componentes"
+            },
           });
         }
       }

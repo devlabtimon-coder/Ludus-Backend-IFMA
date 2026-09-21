@@ -24,10 +24,8 @@ function addDays(d: Date, days: number) {
 }
 
 export function startRentalReminderJob() {
-  
   cron.schedule("0 * * * *", async () => {
     const now = new Date();
-
 
     const tomorrow = addDays(now, 1);
     const in24hStart = startOfDay(tomorrow);
@@ -54,14 +52,13 @@ export function startRentalReminderJob() {
       await notifyUser({
         userId: r.userId,
         type: NotificationType.RENTAL_DUE_24H,
-        title: "Seu aluguel vence em 24h ⏳",
+        title: "Seu aluguel vence em 24h ⏰",
         body: `O jogo "${gameTitle}" vence amanhã. Combine a devolução na biblioteca.`,
         channelId: "rentals",
         data: { route: "/rentals", rentalId: r.id, gameId },
         dedupeKey: `RENTAL_DUE_24H:${r.id}:${startOfDay(now).toISOString()}`,
       });
     }
-
 
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
@@ -87,7 +84,7 @@ export function startRentalReminderJob() {
       await notifyUser({
         userId: r.userId,
         type: NotificationType.RENTAL_DUE_TODAY,
-        title: "Seu aluguel vence hoje 🚨",
+        title: "Seu aluguel vence hoje ⚠️",
         body: `O jogo "${gameTitle}" vence hoje. Devolva na Biblioteca IFMA - Campus Timon.`,
         channelId: "rentals",
         data: { route: "/rentals", rentalId: r.id, gameId },
@@ -95,7 +92,6 @@ export function startRentalReminderJob() {
       });
     }
 
-   
     const overdue = await prisma.rental.findMany({
       where: {
         status: RentalStatus.ACTIVE,
@@ -117,7 +113,7 @@ export function startRentalReminderJob() {
       await notifyUser({
         userId: r.userId,
         type: NotificationType.RENTAL_OVERDUE,
-        title: "Devolução em atraso ❌",
+        title: "Devolução em atraso 🚨",
         body: `O jogo "${gameTitle}" está em atraso. Regularize na biblioteca.`,
         channelId: "rentals",
         data: { route: "/rentals", rentalId: r.id, gameId },
@@ -125,9 +121,7 @@ export function startRentalReminderJob() {
       });
     }
 
-   
     const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-
     const noShows = await prisma.rental.findMany({
       where: {
         status: RentalStatus.PENDING,
@@ -149,18 +143,6 @@ export function startRentalReminderJob() {
           where: { id: r.id },
           data: { status: RentalStatus.CANCELED },
         });
-
-        if (r.copyId) {
-          await tx.gameCopy.update({
-            where: { id: r.copyId },
-            data: { available: true },
-          });
-        } else if (r.gameId) {
-          await tx.game.update({
-            where: { id: r.gameId },
-            data: { available: true },
-          });
-        }
       });
 
       try {
@@ -168,19 +150,17 @@ export function startRentalReminderJob() {
       } catch (err) {
         console.error("Erro ao aplicar penalidade de no-show:", err);
       }
-
       
       const gameTitle = r.game?.title || r.gameTitleSnapshot;
       await notifyUser({
         userId: r.userId,
         type: "SYSTEM_ANNOUNCEMENT" as NotificationType,
-        title: "Reserva Cancelada por Não Comparecimento 🚫",
+        title: "Reserva Cancelada por Não Comparecimento ❌",
         body: `Sua reserva de "${gameTitle}" foi cancelada automaticamente pois não foi retirada no horário agendado.`,
         channelId: "rentals",
         data: { route: "/rentals", rentalId: r.id },
         dedupeKey: `RENTAL_NOSHOW:${r.id}`,
       });
-
       
       if (r.gameId) {
         try {
