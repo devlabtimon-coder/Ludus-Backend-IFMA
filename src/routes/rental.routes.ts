@@ -254,25 +254,29 @@ rentalRoutes.post("/", ensureAuthenticated, ensureUserOnly, async (req, res) => 
     });
 
     if (result.status === 201 && "id" in result.body) {
-      const game = await prisma.game.findUnique({
-        where: { id: String(gameId) },
-        select: { title: true },
-      });
+      try {
+        const game = await prisma.game.findUnique({
+          where: { id: String(gameId) },
+          select: { title: true },
+        });
 
-      await notifyUser({
-        userId,
-        type: "RENTAL_CREATED",
-        title: "Reserva Confirmada",
-        body: `Sua reserva de "${game?.title}" foi agendada!`,
-        channelId: "rentals",
-      });
+        await notifyUser({
+          userId,
+          type: "RENTAL_CREATED",
+          title: "Reserva Confirmada",
+          body: `Sua reserva de "${game?.title}" foi agendada!`,
+          channelId: "rentals",
+        });
 
-      await notifyAdmins({
-        title: "Nova Solicitação de Aluguel",
-        body: `O usuário ${result.userName} solicitou a retirada de "${game?.title}".`,
-        data: { route: "/emprestimos" },
-        dedupeKey: `ADMIN_NEW_RENTAL_${result.body.id}`
-      });
+        await notifyAdmins({
+          title: "Nova Solicitação de Aluguel",
+          body: `O usuário ${result.userName} solicitou a retirada de "${game?.title}".`,
+          data: { route: "/emprestimos" },
+          dedupeKey: `ADMIN_NEW_RENTAL_${result.body.id}`
+        });
+      } catch (notifyErr) {
+        console.error("Erro não-crítico ao disparar notificações de aluguel:", notifyErr);
+      }
     }
 
     return res.status(result.status).json(result.body);
@@ -330,7 +334,6 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      // Cria a trava a nível de linha para garantir a atomicidade
       await tx.$executeRaw`SELECT id FROM "Rental" WHERE id = ${id} FOR UPDATE`;
 
       const rental = await tx.rental.findUnique({
@@ -345,8 +348,6 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
         return { status: 404, body: { error: "Aluguel não encontrado." } } as const;
       }
 
-      // Se a transação concorrente B passar da trava (após a transação A gravar), 
-      // a verificação abaixo bloqueia a B pois o status não é mais PENDING.
       if (rental.status !== "PENDING") {
         return {
           status: 409,
@@ -375,7 +376,6 @@ rentalRoutes.patch("/:id/cancel", ensureAuthenticated, ensureUserOnly, async (re
 
     const rentalData = updated.body;
 
-    // Dispara punições e notificações SOMENTE se a transação atômica teve sucesso
     applyCancellationPenalty(userId).catch(() => {});
 
     notifyUser({
