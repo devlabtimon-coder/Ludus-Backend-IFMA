@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { getAuth } from "firebase-admin/auth";
-import { randomInt } from "crypto";
+import { randomInt, randomBytes } from "crypto";
 
 import { prisma } from "../lib/prisma";
 import { login, loginWithGoogle, verifyGoogleToken } from "../services/auth.service";
@@ -640,17 +640,19 @@ router.post("/forgot-password/verify", otpLimiter, async (req, res) => {
       return res.status(400).json({ error: "Código expirado. Solicite um novo." });
     }
 
+    const jti = randomBytes(16).toString("hex");
+
     const resetToken = jwt.sign(
       { purpose: "password_reset" },
       process.env.JWT_SECRET as string,
-      { subject: user.id, expiresIn: "5m" }
+      { subject: user.id, expiresIn: "5m", jwtid: jti }
     );
 
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        emailVerificationCode: null,
-        emailCodeExpiresAt: null,
+        emailVerificationCode: jti,
+        emailCodeExpiresAt: new Date(Date.now() + 5 * 60 * 1000), 
       },
     });
 
@@ -672,7 +674,7 @@ router.post("/forgot-password/reset", async (req, res) => {
   }
 
   try {
-    let payload: { sub: string; purpose: string };
+    let payload: { sub: string; purpose: string; jti?: string };
 
     try {
       payload = jwt.verify(
@@ -683,17 +685,29 @@ router.post("/forgot-password/reset", async (req, res) => {
       return res.status(400).json({ error: "Token expirado ou inválido. Recomece o processo." });
     }
 
-    if (payload.purpose !== "password_reset") {
+    if (payload.purpose !== "password_reset" || !payload.jti) {
       return res.status(400).json({ error: "Token inválido." });
     }
 
     const userId = payload.sub;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerificationCode: true }
+    });
+
+    if (!user || user.emailVerificationCode !== payload.jti) {
+      return res.status(400).json({ error: "Este link de recuperação já foi utilizado ou é inválido." });
+    }
+
     const hash = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
       where: { id: userId },
       data: {
         senhaHash: hash,
+        emailVerificationCode: null,
+        emailCodeExpiresAt: null,
         lastEmailSentAt: null, 
       },
     });
