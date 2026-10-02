@@ -134,6 +134,16 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "E-mail é obrigatório." });
     }
 
+    if (
+      process.env.IFMA_MODE === "true" &&
+      !cleanEmail.endsWith("@ifma.edu.br") &&
+      !cleanEmail.endsWith("@acad.ifma.edu.br")
+    ) {
+      return res.status(400).json({
+        error: "Apenas e-mails institucionais são aceitos (@acad.ifma.edu.br ou @ifma.edu.br).",
+      });
+    }
+
     if ((!senha || senha.length < 6) && !googleToken) {
       return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres." });
     }
