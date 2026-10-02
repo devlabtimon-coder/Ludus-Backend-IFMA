@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 interface IPayload {
   sub: string;
   role: string;
+  purpose?: string;
 }
 
 export async function ensureAuthenticated(req: Request, res: Response, next: NextFunction) {
@@ -20,6 +21,11 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
       token,
       process.env.JWT_SECRET as string 
     ) as IPayload;
+
+    // Tokens de propósito específico (ex.: redefinição de senha) não valem como sessão.
+    if (decoded.purpose) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
 
     const userId = decoded.sub;
 

@@ -65,7 +65,7 @@ gameRoutes.get("/", async (req, res) => {
       const token = parts[1];
       try {
         const decoded = verify(token, process.env.JWT_SECRET as string) as any;
-        if (decoded.sub) {
+        if (decoded.sub && !decoded.purpose) {
           const userCheck = await prisma.user.findUnique({
             where: { id: decoded.sub },
             select: { role: true }
