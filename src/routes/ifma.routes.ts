@@ -61,7 +61,9 @@ function buildUserResponse(user: any) {
 }
 
 router.post("/register", async (req, res) => {
-  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy, googleToken } = req.body;
+  const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy } = req.body;
+  // O app envia o token do Google como `idToken`; `googleToken` mantido por compatibilidade.
+  const googleToken = req.body.googleToken || req.body.idToken;
 
   try {
     const cleanName = (name || "").trim();
@@ -126,6 +128,17 @@ router.post("/register", async (req, res) => {
         if (phoneExists) {
           return res.status(400).json({ error: "Telefone já cadastrado." });
         }
+      }
+
+      const matriculaOwner = await prisma.user.findFirst({
+        where: { matricula: cleanMatricula, email: { not: cleanEmail } },
+        select: { id: true },
+      });
+      if (matriculaOwner) {
+        return res.status(400).json({
+          error: "Esta matrícula já está associada a uma conta.",
+          code: "MATRICULA_IN_USE",
+        });
       }
 
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
