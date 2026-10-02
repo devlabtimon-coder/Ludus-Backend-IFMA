@@ -716,9 +716,10 @@ router.post("/forgot-password/reset", async (req, res) => {
       where: { id: userId },
       data: {
         senhaHash: hash,
+        passwordChangedAt: new Date(),
         emailVerificationCode: null,
         emailCodeExpiresAt: null,
-        lastEmailSentAt: null, 
+        lastEmailSentAt: null,
       },
     });
 

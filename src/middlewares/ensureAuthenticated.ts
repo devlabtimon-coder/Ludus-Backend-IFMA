@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 interface IPayload {
   sub: string;
   role: string;
+  iat?: number;
   purpose?: string;
 }
 
@@ -39,11 +40,20 @@ export async function ensureAuthenticated(req: Request, res: Response, next: Nex
         emailVerified: true,
         phoneVerified: true,
         isBlocked: true, 
+        passwordChangedAt: true,
       },
     });
 
     if (!user) {
       return res.status(401).json({ error: "Utilizador não encontrado" });
+    }
+
+    // Sessões abertas antes da última troca de senha são invalidadas.
+    if (
+      user.passwordChangedAt &&
+      (decoded.iat ?? 0) < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    ) {
+      return res.status(401).json({ error: "Sessão expirada. Faça login novamente." });
     }
 
     if (user.isBlocked) {

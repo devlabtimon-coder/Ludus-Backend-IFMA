@@ -6,6 +6,7 @@ import { uploadAvatar } from "../middlewares/uploadAvatar";
 import { cloudinary } from "../lib/cloudinary";
 import { ClientCategory } from "@prisma/client";
 import { notifyAdmins } from "../services/adminNotification.service";
+import { signUserToken } from "../lib/auth.utils";
 
 const CATEGORY_ORDER: ClientCategory[] = [
   "STARTER",
@@ -259,11 +260,15 @@ userProfileRoutes.patch("/me/password", ensureAuthenticated, async (req, res) =>
 
     await prisma.user.update({
       where: { id: req.user.id },
-      data: { senhaHash: newHash },
+      data: { senhaHash: newHash, passwordChangedAt: new Date() },
     });
+
+    // As sessões antigas foram invalidadas; esta recebe um token novo.
+    const token = signUserToken(user.id, user.role);
 
     return res.json({
       ok: true,
+      token,
       message: user.senhaHash
         ? "Senha alterada com sucesso."
         : "Senha criada com sucesso.",

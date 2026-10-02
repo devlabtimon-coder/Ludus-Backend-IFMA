@@ -82,7 +82,8 @@ model User {
   points Int @default(0)
   level  Int @default(1)
 
-  senhaHash    String?
+  senhaHash         String?
+  passwordChangedAt DateTime?
   googleSub    String?      @unique
   authProvider AuthProvider @default(LOCAL)
 
