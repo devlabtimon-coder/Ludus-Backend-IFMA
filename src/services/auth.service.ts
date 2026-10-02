@@ -109,12 +109,50 @@ export async function login(emailOrPhone: string, senha: string) {
   };
 }
 
+// Client IDs OAuth públicos do Ludus (web, Android e iOS). Usados quando
+// GOOGLE_CLIENT_IDS não está definido no ambiente.
+const DEFAULT_GOOGLE_CLIENT_IDS = [
+  "706484468010-usc5ukmojk20cmvd005atqbfn9kst25l.apps.googleusercontent.com",
+  "706484468010-8vkl29n2em35g4s3md470impvlk68lho.apps.googleusercontent.com",
+  "706484468010-s8rkf8o3vok29vlpnp0fi9gaqb9602gn.apps.googleusercontent.com",
+  "1008142639242-d4q2e3cpr97q87bm3ovs9h3jagefsojr.apps.googleusercontent.com",
+];
+
+// Tokens emitidos para qualquer outro app são recusados.
+function getAllowedGoogleClientIds(): string[] {
+  const fromEnv = (process.env.GOOGLE_CLIENT_IDS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : DEFAULT_GOOGLE_CLIENT_IDS;
+}
+
+// Aceita ID token (app mobile) ou access token (web admin), sempre conferindo o client ID de origem.
 export async function verifyGoogleToken(token: string): Promise<GooglePayload> {
   if (!token) throw new Error("Token do Google ausente.");
+
+  const allowedClientIds = getAllowedGoogleClientIds();
+  const isJwt = token.split(".").length === 3;
+
   try {
+    if (isJwt) {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: token,
+        audience: allowedClientIds,
+      });
+      const payload = ticket.getPayload();
+      if (!payload) throw new Error("payload vazio");
+      return payload;
+    }
+
     const info = await googleClient.getTokenInfo(token);
+    const issuedTo = [info.aud, info.azp].filter(Boolean) as string[];
+    if (!issuedTo.some((id) => allowedClientIds.includes(id))) {
+      throw new Error("audience não permitida");
+    }
     return info as unknown as GooglePayload;
-  } catch (err) {
+  } catch (err: any) {
+    console.warn("Falha ao validar token Google:", err?.message || err);
     throw new Error("Token Google forjado, inválido ou expirado.");
   }
 }
