@@ -62,8 +62,8 @@ function buildUserResponse(user: any) {
 
 router.post("/register", async (req, res) => {
   const { name, email, matricula, phone, senha, acceptedTerms, acceptedPrivacy } = req.body;
-  // O app envia o token do Google como `idToken`; `googleToken` mantido por compatibilidade.
-  const googleToken = req.body.googleToken || req.body.idToken;
+  // O app atual envia `idToken`; versões anteriores enviam `googleIdToken`.
+  const googleToken = req.body.googleToken || req.body.idToken || req.body.googleIdToken;
 
   try {
     const cleanName = (name || "").trim();
