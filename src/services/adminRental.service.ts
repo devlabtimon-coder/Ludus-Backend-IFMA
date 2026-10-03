@@ -11,6 +11,16 @@ const ACTIVATION_TOLERANCE_MS = 15 * 60 * 1000;
 const FINALIZED_STATUSES: RentalStatus[] = [RentalStatus.RETURNED, RentalStatus.CANCELED];
 const ADMIN_SETTABLE_STATUSES: RentalStatus[] = [RentalStatus.ACTIVE, RentalStatus.RETURNED, RentalStatus.CANCELED];
 
+// Transições que o admin pode fazer. Cancelar um aluguel ATIVO liberaria o
+// exemplar enquanto o jogo ainda está com o aluno, e devolver um PENDENTE
+// pularia a retirada (pontos e contagem de aluguéis).
+export const ALLOWED_TRANSITIONS: Record<RentalStatus, RentalStatus[]> = {
+  [RentalStatus.PENDING]: [RentalStatus.ACTIVE, RentalStatus.CANCELED],
+  [RentalStatus.ACTIVE]: [RentalStatus.RETURNED],
+  [RentalStatus.RETURNED]: [],
+  [RentalStatus.CANCELED]: [],
+};
+
 export type AdminRentalFilters = {
   status?: string;
   q?: string;
@@ -106,6 +116,16 @@ export async function updateRentalStatus(adminId: string, rentalId: string, inpu
 
     if (FINALIZED_STATUSES.includes(rental.status)) {
       throw new HttpError(409, "Aluguel já finalizado", "RENTAL_FINALIZED");
+    }
+
+    if (!ALLOWED_TRANSITIONS[rental.status].includes(status)) {
+      throw new HttpError(
+        409,
+        rental.status === RentalStatus.ACTIVE
+          ? "Um aluguel em andamento só pode ser finalizado com a devolução."
+          : "Confirme a retirada antes de registrar a devolução.",
+        "INVALID_TRANSITION",
+      );
     }
 
     if (

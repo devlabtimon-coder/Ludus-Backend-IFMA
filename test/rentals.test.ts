@@ -309,3 +309,32 @@ describe("PATCH /admin/rentals/:id/status", () => {
     expect(res.body.code).toBe("RENTAL_FINALIZED");
   });
 });
+
+describe("transições de status pelo admin", () => {
+  it.each([
+    ["ACTIVE", "CANCELED"],
+    ["PENDING", "RETURNED"],
+  ] as const)("recusa %s -> %s", async (from, to) => {
+    const { admin, game, copies } = await setupGame();
+    const user = await createUser();
+    const rental = await createRental({ userId: user.id, gameId: game.id, copyId: copies[0].id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H), status: from });
+
+    const res = await request(app).patch(`/admin/rentals/${rental.id}/status`).set(authHeader(admin)).send({ status: to });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("INVALID_TRANSITION");
+    const fresh = await prisma.rental.findUniqueOrThrow({ where: { id: rental.id } });
+    expect(fresh.status).toBe(from);
+  });
+
+  it("permite rejeitar uma reserva pendente", async () => {
+    const { admin, game } = await setupGame();
+    const user = await createUser();
+    const rental = await createRental({ userId: user.id, gameId: game.id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H) });
+
+    const res = await request(app).patch(`/admin/rentals/${rental.id}/status`).set(authHeader(admin)).send({ status: "CANCELED" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("CANCELED");
+  });
+});
