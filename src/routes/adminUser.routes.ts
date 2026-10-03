@@ -11,6 +11,14 @@ import { withSignedDocuments } from "../lib/documentStorage";
 
 export const adminUserRoutes = Router();
 
+// Campos devolvidos ao aprovar/rejeitar cadastro; nunca o registro completo.
+const REGISTRATION_RESULT_SELECT = {
+  id: true,
+  registrationStatus: true,
+  rejectReason: true,
+  isAcademicVerified: true,
+} as const;
+
 adminUserRoutes.patch("/:id/block", ensureAuthenticated, ensureAdmin, async (req, res) => {
   const id = ensureString(req.params.id); 
   const { isBlocked } = req.body;
@@ -93,7 +101,8 @@ adminUserRoutes.patch("/:id/approve-docs", ensureAuthenticated, ensureAdmin, asy
 
     const updatedUser = await prisma.user.update({
       where: { id },
-      data: updateData
+      data: updateData,
+      select: REGISTRATION_RESULT_SELECT,
     });
 
     await logAdminAction(req.user.id, "APPROVE_DOCS", id);
@@ -140,7 +149,8 @@ adminUserRoutes.patch("/:id/reject-docs", ensureAuthenticated, ensureAdmin, asyn
 
     const updatedUser = await prisma.user.update({
       where: { id },
-      data: updateData
+      data: updateData,
+      select: REGISTRATION_RESULT_SELECT,
     });
 
     await logAdminAction(req.user.id, "REJECT_DOCS", id, { reason: reason.trim() });
