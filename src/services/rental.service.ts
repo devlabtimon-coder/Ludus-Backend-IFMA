@@ -6,11 +6,13 @@ import { notifyAdmins } from "./adminNotification.service";
 import { notifyGameBackAvailable } from "./gameAvailability.service";
 import { getHolidaysByYear } from "./holiday.service";
 import { canClientRentTier } from "./category.service";
-import { applyCancellationPenalty } from "./engagement.service";
+import { applyCancellationPenalty, applyNoShowPenalty } from "./engagement.service";
 
 // Folga entre a devolução de um aluguel e a próxima retirada do mesmo exemplar.
 export const RENTAL_BUFFER_MS = 30 * 60 * 1000;
 export const MAX_OPEN_RENTALS = 2;
+// Tolerância após o horário de retirada antes de cancelar por não comparecimento.
+export const NO_SHOW_GRACE_MS = 30 * 60 * 1000;
 
 const OPEN_STATUSES = ["PENDING", "ACTIVE"] as const;
 
@@ -433,4 +435,68 @@ export async function getAvailableSlots(gameId: string, date: string) {
   );
 
   return freeSlotsOfDay(y, m, d, booked, totalUnits);
+}
+
+// ---- Não comparecimento ----
+
+// Cancela a reserva apenas se ela ainda estiver pendente, numa única operação.
+// Se o admin confirmou a retirada nesse meio tempo, nada muda; e com várias
+// instâncias rodando o job, só uma consegue cancelar (e penalizar).
+export async function cancelIfStillPending(rentalId: string): Promise<boolean> {
+  const { count } = await prisma.rental.updateMany({
+    where: { id: rentalId, status: "PENDING" },
+    data: { status: "CANCELED" },
+  });
+  return count === 1;
+}
+
+export async function cancelNoShows(now = new Date()) {
+  const noShows = await prisma.rental.findMany({
+    where: {
+      status: "PENDING",
+      startDate: { lt: new Date(now.getTime() - NO_SHOW_GRACE_MS) },
+    },
+    select: {
+      id: true,
+      userId: true,
+      gameId: true,
+      gameTitleSnapshot: true,
+      game: { select: { title: true } },
+    },
+  });
+
+  let cancelled = 0;
+
+  for (const r of noShows) {
+    try {
+      if (!(await cancelIfStillPending(r.id))) continue;
+      cancelled++;
+
+      try {
+        await applyNoShowPenalty(r.userId);
+      } catch (err) {
+        console.error("Erro ao aplicar penalidade de no-show:", err);
+      }
+
+      await notifyUser({
+        userId: r.userId,
+        type: "SYSTEM_ANNOUNCEMENT",
+        title: "Reserva Cancelada por Não Comparecimento ❌",
+        body: `Sua reserva de "${r.game?.title || r.gameTitleSnapshot}" foi cancelada automaticamente pois não foi retirada no horário agendado.`,
+        channelId: "rentals",
+        data: { route: "/rentals", rentalId: r.id },
+        dedupeKey: `RENTAL_NOSHOW:${r.id}`,
+      });
+
+      if (r.gameId) {
+        await notifyGameBackAvailable(r.gameId).catch((err) =>
+          console.error("Erro ao avisar disponibilidade pós no-show:", err),
+        );
+      }
+    } catch (err) {
+      console.error(`Erro ao processar no-show do aluguel ${r.id}:`, err);
+    }
+  }
+
+  return cancelled;
 }

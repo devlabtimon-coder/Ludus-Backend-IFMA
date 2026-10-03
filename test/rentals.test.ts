@@ -2,6 +2,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authHeader, buildApp } from "./helpers/app";
 import { createCopy, createGame, createRental, createUser, prisma, resetDatabase } from "./helpers/db";
+import { cancelIfStillPending, cancelNoShows } from "../src/services/rental.service";
 
 const app = buildApp();
 
@@ -336,5 +337,60 @@ describe("transições de status pelo admin", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("CANCELED");
+  });
+});
+
+describe("cancelamento por não comparecimento (job)", () => {
+  // 31 minutos depois do horário de retirada.
+  const AFTER_GRACE = new Date("2026-10-06T13:31:00Z");
+
+  it("cancela a reserva não retirada e aplica -5 pontos", async () => {
+    const { game } = await setupGame();
+    const user = await createUser({ points: 10 });
+    const rental = await createRental({ userId: user.id, gameId: game.id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H) });
+    vi.setSystemTime(AFTER_GRACE);
+
+    expect(await cancelNoShows()).toBe(1);
+
+    const [freshRental, freshUser] = await Promise.all([
+      prisma.rental.findUniqueOrThrow({ where: { id: rental.id } }),
+      prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+    ]);
+    expect(freshRental.status).toBe("CANCELED");
+    expect(freshUser.points).toBe(5);
+  });
+
+  it("não cancela reserva dentro da tolerância de 30 minutos", async () => {
+    const { game } = await setupGame();
+    const user = await createUser();
+    await createRental({ userId: user.id, gameId: game.id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H) });
+    vi.setSystemTime(new Date("2026-10-06T13:20:00Z"));
+
+    expect(await cancelNoShows()).toBe(0);
+  });
+
+  it("não cancela uma reserva cuja retirada já foi confirmada", async () => {
+    const { game } = await setupGame();
+    const user = await createUser();
+    const rental = await createRental({ userId: user.id, gameId: game.id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H), status: "ACTIVE" });
+
+    // Simula o admin confirmando entre a busca do job e o cancelamento.
+    expect(await cancelIfStillPending(rental.id)).toBe(false);
+
+    const fresh = await prisma.rental.findUniqueOrThrow({ where: { id: rental.id } });
+    expect(fresh.status).toBe("ACTIVE");
+  });
+
+  it("aplica a penalidade uma única vez com execuções simultâneas", async () => {
+    const { game } = await setupGame();
+    const user = await createUser({ points: 10 });
+    await createRental({ userId: user.id, gameId: game.id, startDate: new Date(TUE_10H), endDate: new Date(TUE_14H) });
+    vi.setSystemTime(AFTER_GRACE);
+
+    const results = await Promise.all([cancelNoShows(), cancelNoShows(), cancelNoShows()]);
+
+    expect(results.reduce((a, b) => a + b, 0)).toBe(1);
+    const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(fresh.points).toBe(5);
   });
 });
