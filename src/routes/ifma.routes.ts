@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { randomInt } from "crypto";
 
 import { prisma } from "../lib/prisma";
+import { signedDocumentUrl } from "../lib/documentStorage";
 import { ensureAuthenticated } from "../middlewares/ensureAuthenticated";
 import { sendVerificationEmail } from "../services/email.service";
 import { verifyGoogleToken } from "../services/auth.service"; 
@@ -53,8 +54,8 @@ function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFile: user.documentFile || null,
-    addressProof: user.addressProof || null,
+    documentFile: signedDocumentUrl(user.documentFile),
+    addressProof: signedDocumentUrl(user.addressProof),
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };

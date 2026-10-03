@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { signedDocumentUrl } from "./documentStorage";
 
 export function buildUserResponse(user: any) {
   return {
@@ -19,8 +20,8 @@ export function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFile: user.documentFile || null,
-    addressProof: user.addressProof || null,
+    documentFile: signedDocumentUrl(user.documentFile),
+    addressProof: signedDocumentUrl(user.addressProof),
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };

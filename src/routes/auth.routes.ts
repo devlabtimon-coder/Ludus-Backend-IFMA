@@ -5,6 +5,7 @@ import { getAuth } from "firebase-admin/auth";
 import { randomInt, randomBytes } from "crypto";
 
 import { prisma } from "../lib/prisma";
+import { signedDocumentUrl } from "../lib/documentStorage";
 import { login, loginWithGoogle, verifyGoogleToken } from "../services/auth.service";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/email.service";
 import { loginLimiter, otpLimiter } from "../middlewares/rateLimiter";
@@ -43,8 +44,8 @@ function buildUserResponse(user: any) {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFile: user.documentFile || null,
-    addressProof: user.addressProof || null,
+    documentFile: signedDocumentUrl(user.documentFile),
+    addressProof: signedDocumentUrl(user.addressProof),
     matricula: user.matricula || null,
     isAcademicVerified: user.isAcademicVerified || false,
   };

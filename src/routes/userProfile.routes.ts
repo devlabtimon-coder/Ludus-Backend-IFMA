@@ -7,6 +7,7 @@ import { cloudinary } from "../lib/cloudinary";
 import { ClientCategory } from "@prisma/client";
 import { notifyAdmins } from "../services/adminNotification.service";
 import { signUserToken } from "../lib/auth.utils";
+import { deleteDocument, signedDocumentUrl, uploadDocument } from "../lib/documentStorage";
 
 const CATEGORY_ORDER: ClientCategory[] = [
   "STARTER",
@@ -120,15 +121,15 @@ userProfileRoutes.get("/me", ensureAuthenticated, async (req, res) => {
       hasPassword: !!user.senhaHash,
       registrationStatus: user.registrationStatus,
       rejectReason: user.rejectReason,
-      documentFile: user.documentFile,
-      addressProof: user.addressProof,
-      selfieWithId: user.selfieWithId,
+      documentFile: signedDocumentUrl(user.documentFile),
+      addressProof: signedDocumentUrl(user.addressProof),
+      selfieWithId: signedDocumentUrl(user.selfieWithId),
       clientCategory: user.clientCategory,
       totalRentalsCount: currentCount,
       isAcademicVerified: user.isAcademicVerified,
       academicVerifiedAt: user.academicVerifiedAt,
       matricula: user.matricula,
-      enrollmentProof: user.enrollmentProof,
+      enrollmentProof: signedDocumentUrl(user.enrollmentProof),
       categoryProgress: {
         current: currentCount,
         total: target,
@@ -454,25 +455,6 @@ userProfileRoutes.patch(
         }
       }
 
-      const uploadToCloudinary = (fileBuffer: Buffer, publicId: string) => {
-        return new Promise<any>((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            {
-              folder: "ludus/documents",
-              resource_type: "auto",
-              public_id: publicId,
-              overwrite: true,
-              transformation: [{ quality: "auto", fetch_format: "auto" }],
-            },
-            (error, result) => {
-              if (error) return reject(error);
-              resolve(result);
-            }
-          );
-          stream.end(fileBuffer);
-        });
-      };
-
       const updateData: any = {
         registrationStatus: "PENDING",
         rejectReason: null,
@@ -485,7 +467,7 @@ userProfileRoutes.patch(
       const oldFilesToDelete: string[] = [];
 
       if (docFile) {
-        const result = await uploadToCloudinary(
+        const result = await uploadDocument(
           docFile.buffer,
           `doc-${req.user.id}-${Date.now()}`
         );
@@ -494,7 +476,7 @@ userProfileRoutes.patch(
       }
 
       if (addressFile) {
-        const result = await uploadToCloudinary(
+        const result = await uploadDocument(
           addressFile.buffer,
           `address-${req.user.id}-${Date.now()}`
         );
@@ -503,7 +485,7 @@ userProfileRoutes.patch(
       }
 
       if (selfieFile) {
-        const result = await uploadToCloudinary(
+        const result = await uploadDocument(
           selfieFile.buffer,
           `selfie-${req.user.id}-${Date.now()}`
         );
@@ -512,7 +494,7 @@ userProfileRoutes.patch(
       }
 
       if (enrollmentFile) {
-        const result = await uploadToCloudinary(
+        const result = await uploadDocument(
           enrollmentFile.buffer,
           `enrollment-${req.user.id}-${Date.now()}`
         );
@@ -532,16 +514,10 @@ userProfileRoutes.patch(
       });
 
       for (const oldUrl of oldFilesToDelete) {
-        const publicId = extractPublicIdFromCloudinaryUrl(oldUrl);
-        if (publicId) {
-          try {
-            const isRaw = oldUrl.toLowerCase().endsWith(".pdf");
-            await cloudinary.uploader.destroy(publicId, {
-              resource_type: isRaw ? "raw" : "image",
-            });
-          } catch (err) {
-            console.error(`Erro ao remover documento antigo (${publicId}):`, err);
-          }
+        try {
+          await deleteDocument(oldUrl);
+        } catch (err) {
+          console.error("Erro ao remover documento antigo:", err);
         }
       }
 

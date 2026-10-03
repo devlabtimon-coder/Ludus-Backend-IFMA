@@ -7,6 +7,7 @@ import { ensureString } from "../utils/params";
 import { notifyUser } from "../services/notify.service";
 import { logAdminAction } from "../services/adminLog.service";
 import { generateSeasonCouponsForUsers } from "../services/engagement.service"; // <-- Import adicionado
+import { withSignedDocuments } from "../lib/documentStorage";
 
 export const adminUserRoutes = Router();
 
@@ -198,7 +199,7 @@ adminUserRoutes.get("/", ensureAuthenticated, ensureAdmin, async (req, res) => {
     ]);
 
     return res.json({
-      data: users,
+      data: users.map(withSignedDocuments),
       total,
       page,
       limit,

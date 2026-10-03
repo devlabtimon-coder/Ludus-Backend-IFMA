@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../lib/prisma";
+import { signedDocumentUrl } from "../lib/documentStorage";
 
 const googleClient = new OAuth2Client();
 
@@ -52,8 +53,8 @@ function buildUserResponse(user: any): AuthUserResponse {
     picture: user.picture,
     registrationStatus: user.registrationStatus,
     rejectReason: user.rejectReason,
-    documentFile: user.documentFile,
-    addressProof: user.addressProof,
+    documentFile: signedDocumentUrl(user.documentFile),
+    addressProof: signedDocumentUrl(user.addressProof),
     isAcademicVerified: user.isAcademicVerified || false,
     matricula: user.matricula || null,
   };
