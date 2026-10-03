@@ -60,6 +60,10 @@ function withSnapshotFallback<T extends RentalWithRelations>(
 async function assertRentalWindow(startDate: Date, endDate: Date) {
   const now = new Date();
 
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpError(400, "Datas de retirada ou devolução inválidas.");
+  }
+
   if (startDate >= endDate) {
     throw new HttpError(400, "A devolução deve ocorrer após a retirada.");
   }

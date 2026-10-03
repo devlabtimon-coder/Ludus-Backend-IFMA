@@ -94,6 +94,7 @@ describe("POST /rentals", () => {
     ["no fim de semana", "2026-10-10T13:00:00.000Z", "2026-10-10T17:00:00.000Z"],
     ["fora do horário", "2026-10-06T09:00:00.000Z", "2026-10-06T17:00:00.000Z"],
     ["com devolução antes da retirada", TUE_14H, TUE_10H],
+    ["com data inválida", "não-é-data", TUE_14H],
   ])("recusa reserva %s", async (_label, startDateIso, endDateIso) => {
     const { game } = await setupGame();
     const user = await createUser();
