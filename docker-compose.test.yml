@@ -1,0 +1,18 @@
+# Banco descartável para os testes automatizados (dados só em memória).
+services:
+  test-db:
+    image: postgres:16
+    container_name: ludus-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ludus_test
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ludus_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
